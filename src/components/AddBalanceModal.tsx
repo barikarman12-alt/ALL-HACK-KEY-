@@ -235,47 +235,7 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
               Click here if not redirected
             </a>
             
-            <button 
-              onClick={async () => {
-                 setError('');
-                 try {
-                   const res = await fetch('/api/fampay/verify-order', {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({ order_id: orderId })
-                   });
-                   const text = await res.text();
-                   let data;
-                   try {
-                     data = JSON.parse(text);
-                   } catch (e) {
-                     console.warn('Verify Button Error (Not JSON) - Static mode fallback active');
-                     // In static mode, mock success for verification
-                     data = { status: 'success', data: { status: 'SUCCESS', order_id: orderId } };
-                   }
-                   const status = (data.status || '').toLowerCase();
-                   if (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID') {
-                     setStep('processing');
-                     addBalance(currentUser!.uid, amount);
-                     confetti({
-                       particleCount: 150,
-                       spread: 80,
-                       origin: { y: 0.6 },
-                       colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-                     });
-                     setStep('success');
-                     setTimeout(() => { onClose(); setStep('input'); }, 4000);
-                   } else {
-                     setError(data.message || 'Payment not yet received.');
-                   }
-                 } catch (e) {
-                   setError('Could not verify at this time.');
-                 }
-              }}
-              className="w-full px-6 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-lg font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all flex items-center justify-center mt-2"
-            >
-              I have paid - Verify Now
-            </button>
+
           </div>
         )}
 

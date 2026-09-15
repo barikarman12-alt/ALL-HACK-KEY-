@@ -646,56 +646,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                     </div>
                   )}
 
-                  <button 
-                    onClick={async () => {
-                       setPaymentError('');
-                       try {
-                         const res = await fetch('/api/fampay/verify-order', {
-                           method: 'POST',
-                           headers: { 'Content-Type': 'application/json' },
-                           body: JSON.stringify({ order_id: orderId })
-                         });
-                         const text = await res.text();
-                         let data;
-                         try {
-                           data = JSON.parse(text);
-                         } catch (e) {
-                           console.warn('Verify Button Error (Not JSON) - Static mode fallback active');
-                           // In static mode, since we can't do CORS to verify-order, we mock success 
-                           data = { status: 'success', data: { status: 'SUCCESS', order_id: orderId } };
-                         }
-                         const status = (data.status || '').toLowerCase();
-                         if (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID') {
-                           setIsVerifying(true);
-                           setPaymentStep('processing');
-                           const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
-                           if (keys.length < quantity && currentUser?.uid) {
-                             const missingCount = quantity - keys.length;
-                             addBalance(currentUser.uid, missingCount * selectedDuration.price);
-                           }
-                           playSuccessSound();
-                           confetti({
-                             particleCount: 150,
-                             spread: 80,
-                             origin: { y: 0.6 },
-                             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-                           });
-                           setPaymentStep('success');
-                           setGeneratedKeys(keys);
-                           sessionStorage.removeItem('pendingPayment');
-                         } else {
-                           setPaymentError(data.message || 'Payment not yet received. Please wait or try again.');
-                         }
-                       } catch (e) {
-                         setPaymentError('Could not verify at this time.');
-                       }
-                    }}
-                    disabled={isVerifying}
-                    className="w-full px-6 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 text-white text-lg font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] transition-all flex items-center justify-center mt-2"
-                  >
-                    I have paid - Verify Now
-                  </button>
-                  <p className="text-xs text-zinc-500">Click if your payment was successful but isn't reflecting automatically.</p>
+
                 </div>
               </div>
             )}
