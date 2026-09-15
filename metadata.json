@@ -1,0 +1,6 @@
+{
+  "name": "E-Commerce Landing Page",
+  "description": "A sleek, conversion-optimized landing page designed to help users buy your product.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

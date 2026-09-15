@@ -1,0 +1,34 @@
+{
+  "collections": {
+    "users": {
+      "description": "User accounts created via Google Sign-In.",
+      "schema": {
+        "uid": "string",
+        "email": "string",
+        "displayName": "string",
+        "photoURL": "string",
+        "lastLoginAt": "timestamp"
+      }
+    },
+    "appData": {
+      "description": "Global application data like inventory and settings.",
+      "schema": {
+        "id": "string",
+        "inventory": "array",
+        "settings": "map"
+      }
+    },
+    "purchases": {
+      "description": "History of user purchases.",
+      "schema": {
+        "id": "string",
+        "userId": "string",
+        "value": "string",
+        "category": "string",
+        "label": "string",
+        "keys": "array",
+        "date": "timestamp"
+      }
+    }
+  }
+}
