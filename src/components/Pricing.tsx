@@ -240,7 +240,19 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ order_id: orderId })
         });
-        const data = await res.json();
+        
+        const text = await res.text();
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (e) {
+          console.error('Verify Polling Error (Not JSON):', text.substring(0, 200));
+          // If the gateway responds with HTML silently fail the poll so it tries again later
+          if (isMounted) {
+            timeoutId = setTimeout(pollPayment, 5000);
+          }
+          return;
+        }
         
         // Wait for status 'success' or 'PAID' from the webhook/verify endpoint
         const status = (data.status || '').toLowerCase();
@@ -331,7 +343,17 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         body: JSON.stringify({ amount: totalPrice })
       });
       
-      const data = await res.json();
+      const text = await res.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        console.error('API Error (Not JSON):', text.substring(0, 200));
+        setPaymentError('Payment Gateway is currently unavailable. Please try again later.');
+        setPaymentStep('configure');
+        return;
+      }
+      
       if (data.order_id) {
         setOrderId(data.order_id);
         
@@ -607,7 +629,15 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                            headers: { 'Content-Type': 'application/json' },
                            body: JSON.stringify({ order_id: orderId })
                          });
-                         const data = await res.json();
+                         const text = await res.text();
+                         let data;
+                         try {
+                           data = JSON.parse(text);
+                         } catch (e) {
+                           console.error('Verify Button Error (Not JSON):', text.substring(0, 200));
+                           setPaymentError('Payment Gateway is currently unavailable. Please try again later.');
+                           return;
+                         }
                          const status = (data.status || '').toLowerCase();
                          if (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID') {
                            setIsVerifying(true);
