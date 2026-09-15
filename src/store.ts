@@ -10,16 +10,16 @@ export interface ProductKey {
 }
 
 const defaultInventory: ProductKey[] = [
-  { category: 'DRIPCLINT NON-ROOT', label: 'Day 1', value: 'nonroot_day1', price: 100, stock: 0, keys: [] },
-  { category: 'DRIPCLINT NON-ROOT', label: 'Day 3', value: 'nonroot_day3', price: 200, stock: 0, keys: [] },
-  { category: 'DRIPCLINT NON-ROOT', label: 'Day 7', value: 'nonroot_day7', price: 330, stock: 0, keys: [] },
-  { category: 'DRIPCLINT NON-ROOT', label: 'Day 15', value: 'nonroot_day15', price: 630, stock: 0, keys: [] },
-  { category: 'DRIPCLINT NON-ROOT', label: 'Day 30', value: 'nonroot_day30', price: 830, stock: 0, keys: [] },
-  { category: 'DRIPCLINT ROOT', label: 'Day 1', value: 'root_day1', price: 100, stock: 0, keys: [] },
-  { category: 'DRIPCLINT ROOT', label: 'Day 3', value: 'root_day3', price: 200, stock: 0, keys: [] },
-  { category: 'DRIPCLINT ROOT', label: 'Day 7', value: 'root_day7', price: 330, stock: 0, keys: [] },
-  { category: 'DRIPCLINT ROOT', label: 'Day 15', value: 'root_day15', price: 630, stock: 0, keys: [] },
-  { category: 'DRIPCLINT ROOT', label: 'Day 30', value: 'root_day30', price: 830, stock: 0, keys: [] }
+  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 1', value: 'nonroot_day1', price: 100, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 3', value: 'nonroot_day3', price: 200, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 7', value: 'nonroot_day7', price: 330, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 15', value: 'nonroot_day15', price: 630, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 30', value: 'nonroot_day30', price: 830, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE ROOT', label: 'Day 1', value: 'root_day1', price: 100, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE ROOT', label: 'Day 3', value: 'root_day3', price: 200, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE ROOT', label: 'Day 7', value: 'root_day7', price: 330, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE ROOT', label: 'Day 15', value: 'root_day15', price: 630, stock: 0, keys: [] },
+  { category: 'ARMAN X STORE ROOT', label: 'Day 30', value: 'root_day30', price: 830, stock: 0, keys: [] }
 ];
 
 export interface ProductCategory {
@@ -49,20 +49,20 @@ export interface ProductSettings {
 }
 
 const defaultSettings: ProductSettings = {
-  nonRootName: 'DRIPCLINT NON-ROOT',
+  nonRootName: 'ARMAN X STORE NON-ROOT',
   nonRootLogoUrl: 'https://images.unsplash.com/photo-1614064641936-732732f1a63c?auto=format&fit=crop&q=80&w=200',
-  rootName: 'DRIPCLINT ROOT',
+  rootName: 'ARMAN X STORE ROOT',
   rootLogoUrl: '/logo.png',
   categories: [
     {
-      id: 'DRIPCLINT NON-ROOT',
-      name: 'DRIPCLINT NON-ROOT',
+      id: 'ARMAN X STORE NON-ROOT',
+      name: 'ARMAN X STORE NON-ROOT',
       logoUrl: 'https://images.unsplash.com/photo-1614064641936-732732f1a63c?auto=format&fit=crop&q=80&w=200',
       theme: 'light'
     },
     {
-      id: 'DRIPCLINT ROOT',
-      name: 'DRIPCLINT ROOT',
+      id: 'ARMAN X STORE ROOT',
+      name: 'ARMAN X STORE ROOT',
       logoUrl: '/logo.png',
       theme: 'dark',
       popular: true
@@ -73,6 +73,7 @@ const defaultSettings: ProductSettings = {
 let inventory: ProductKey[] = defaultInventory;
 let settings: ProductSettings = defaultSettings;
 let purchases: PurchaseRecord[] = [];
+let balances: Record<string, number> = {};
 
 const listeners = new Set<() => void>();
 
@@ -84,6 +85,7 @@ const loadFromStorage = () => {
       const data = JSON.parse(savedGlobal);
       if (data.inventory) inventory = data.inventory;
       if (data.settings) settings = data.settings;
+      if (data.balances) balances = data.balances;
     }
     
     const savedPurchases = localStorage.getItem('appDataPurchases');
@@ -98,7 +100,7 @@ const loadFromStorage = () => {
 loadFromStorage();
 
 const syncToStorage = () => {
-  localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings }));
+  localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances }));
 };
 
 const syncPurchasesToStorage = () => {
@@ -136,6 +138,18 @@ export const store = {
     store.notify();
   },
 
+  removeKey: (value: string, keyToRemove: string) => {
+    inventory = inventory.map(item => {
+      if (item.value === value) {
+        const updatedKeys = item.keys.filter(k => k !== keyToRemove);
+        return { ...item, keys: updatedKeys, stock: updatedKeys.length };
+      }
+      return item;
+    });
+    syncToStorage();
+    store.notify();
+  },
+
   purchaseKeys: async (value: string, count: number, userId?: string, userEmail?: string): Promise<string[]> => {
     let purchased: string[] = [];
     let record: PurchaseRecord | null = null;
@@ -143,6 +157,7 @@ export const store = {
       if (item.value === value) {
         const remainingKeys = [...item.keys];
         purchased = remainingKeys.splice(0, count);
+
         if (purchased.length > 0) {
           record = {
             id: Math.random().toString(36).substring(2, 11),
@@ -154,7 +169,10 @@ export const store = {
             date: new Date().toISOString()
           };
         }
-        return { ...item, stock: item.stock - purchased.length, keys: remainingKeys };
+        
+        // Don't reduce stock below 0
+        const newStock = Math.max(0, item.stock - purchased.length);
+        return { ...item, stock: newStock, keys: remainingKeys };
       }
       return item;
     });
@@ -189,6 +207,30 @@ export const store = {
     store.notify();
   },
 
+  getBalance: (userId: string) => balances[userId] || 0,
+  
+  addBalance: (userId: string, amount: number) => {
+    if (!userId) return;
+    const current = balances[userId] || 0;
+    balances[userId] = current + amount;
+    syncToStorage();
+    store.notify();
+  },
+
+  deductBalance: (userId: string, amount: number): boolean => {
+    if (!userId) return false;
+    const current = balances[userId] || 0;
+    if (current >= amount) {
+      balances[userId] = current - amount;
+      syncToStorage();
+      store.notify();
+      return true;
+    }
+    return false;
+  },
+
+  getAllBalances: () => balances,
+
   subscribe: (listener: () => void) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -198,6 +240,24 @@ export const store = {
     listeners.forEach(listener => listener());
   }
 };
+
+export function useBalance(userId?: string) {
+  const [balance, setBalance] = useState(userId ? store.getBalance(userId) : 0);
+
+  useEffect(() => {
+    if (!userId) {
+      setBalance(0);
+      return;
+    }
+    setBalance(store.getBalance(userId));
+    
+    return store.subscribe(() => {
+      setBalance(store.getBalance(userId));
+    });
+  }, [userId]);
+
+  return { balance, addBalance: store.addBalance, deductBalance: store.deductBalance };
+}
 
 export function useInventory(userId?: string) {
   const [items, setItems] = useState(store.getInventory());
@@ -211,6 +271,8 @@ export function useInventory(userId?: string) {
       if (userId) {
          const userPurchases = store.getPurchases().filter(p => p.userId === userId);
          setPurchasesState(userPurchases);
+      } else {
+         setPurchasesState(store.getPurchases());
       }
     });
   }, [userId]);
@@ -219,6 +281,8 @@ export function useInventory(userId?: string) {
     if (userId) {
       const userPurchases = store.getPurchases().filter(p => p.userId === userId);
       setPurchasesState(userPurchases);
+    } else {
+      setPurchasesState(store.getPurchases());
     }
   }, [userId]);
 
@@ -226,9 +290,11 @@ export function useInventory(userId?: string) {
     items,
     settings: settingsState,
     purchases: purchasesState,
+    balances: store.getAllBalances(),
     updateSettings: store.updateSettings,
     addStock: store.addStock,
     addKeys: store.addKeys,
+    removeKey: store.removeKey,
     addProduct: store.addProduct,
     deleteProduct: store.deleteProduct,
     purchaseKeys: store.purchaseKeys

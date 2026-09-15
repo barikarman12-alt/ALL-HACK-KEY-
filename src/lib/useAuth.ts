@@ -56,8 +56,8 @@ export const loginWithIdMock = async (id: string, password: string) => {
   
   const mockUser: User = {
     uid: user.uid,
-    email: `${id}@dripclint.com`.toLowerCase(),
-    displayName: id,
+    email: id.includes('@') ? id : `${id}@armanxstore.com`.toLowerCase(),
+    displayName: user.name || id,
     customId: id
   };
   localStorage.setItem('mockUser', JSON.stringify(mockUser));
@@ -86,7 +86,7 @@ export const registerWithIdMock = async (id: string, password: string, name?: st
   
   const mockUser: User = {
     uid: newUser.uid,
-    email: `${userIdL}@dripclint.com`.toLowerCase(),
+    email: userIdL.includes('@') ? userIdL : `${userIdL}@armanxstore.com`.toLowerCase(),
     displayName: newUser.name,
     customId: id
   };

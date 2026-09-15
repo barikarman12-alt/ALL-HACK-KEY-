@@ -1,12 +1,14 @@
 import { X, Key, Calendar } from 'lucide-react';
 import { useInventory } from '../store';
+import { useAuth } from '../lib/useAuth';
 
 interface PurchaseHistoryModalProps {
   onClose: () => void;
 }
 
 export function PurchaseHistoryModal({ onClose }: PurchaseHistoryModalProps) {
-  const { purchases } = useInventory();
+  const { currentUser } = useAuth();
+  const { purchases } = useInventory(currentUser?.uid);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">

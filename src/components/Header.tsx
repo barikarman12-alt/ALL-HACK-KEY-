@@ -1,7 +1,9 @@
-import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut } from 'lucide-react';
+import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut, Wallet, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
+import { useBalance } from '../store';
+import { AddBalanceModal } from './AddBalanceModal';
 
 interface HeaderProps {
   currentPage?: 'home' | 'dashboard' | 'login';
@@ -11,29 +13,31 @@ interface HeaderProps {
 
 export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: HeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isAddBalanceOpen, setIsAddBalanceOpen] = useState(false);
   const { currentUser } = useAuth();
+  const { balance } = useBalance(currentUser?.uid);
 
   return (
+    <>
     <header className="fixed top-0 left-0 right-0 z-50 bg-zinc-950/80 backdrop-blur-md border-b border-fuchsia-500/20 shadow-[0_0_15px_rgba(224,0,255,0.1)]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onNavigate?.('home')}>
             <img 
               src="/logo.png" 
-              alt="DRIPCLINT Logo" 
+              alt="ARMAN X STORE Logo" 
               className="w-10 h-10 rounded-md shadow-[0_0_10px_rgba(224,0,255,0.4)] border border-fuchsia-500/30"
               onError={(e) => {
-                // Fallback if logo.png doesn't exist yet
                 (e.target as HTMLImageElement).style.display = 'none';
               }}
             />
             <span className="font-display font-bold text-xl tracking-tight text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
-              DRIPCLINT<span className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(224,0,255,0.8)]">.</span>
+              ARMAN X STORE<span className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(224,0,255,0.8)]">.</span>
             </span>
           </div>
           
           <div className="hidden md:flex items-center space-x-4">
-            {(currentUser?.email === 'barikarman207@gmail.com' || ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '')) && (
+            {(currentUser?.email?.includes('barikarman') || ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || currentUser?.customId?.includes('barikarman')) && (
               currentPage === 'home' ? (
                 <button 
                   onClick={() => onNavigate?.('dashboard')}
@@ -55,6 +59,17 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
 
             {currentUser ? (
               <>
+                <div className="flex items-center space-x-2 bg-zinc-900/80 border border-fuchsia-500/20 px-3 py-1.5 rounded-full shadow-[0_0_10px_rgba(224,0,255,0.1)]">
+                  <Wallet className="w-4 h-4 text-fuchsia-400" />
+                  <span className="text-white font-medium text-sm">₹{balance}</span>
+                  <button 
+                    onClick={() => setIsAddBalanceOpen(true)}
+                    className="ml-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white p-1 rounded-full shadow-[0_0_8px_rgba(224,0,255,0.4)] transition-colors"
+                    title="Add Balance"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
                 <button 
                   className="text-zinc-300 hover:text-fuchsia-400 transition-colors"
                   onClick={onShowPurchases}
@@ -83,7 +98,6 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                 Login
               </button>
             )}
-
             <a href="#pricing" onClick={() => onNavigate?.('home')} className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-full text-white bg-fuchsia-600 hover:bg-fuchsia-500 shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all">
               View Products
             </a>
@@ -91,12 +105,24 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
 
           <div className="flex md:hidden items-center space-x-4">
             {currentUser ? (
-              <button 
-                className="text-zinc-300 hover:text-fuchsia-400 transition-colors"
-                onClick={onShowPurchases}
-              >
-                <History className="w-5 h-5" />
-              </button>
+              <>
+                <div className="flex items-center space-x-1.5 bg-zinc-900/80 border border-fuchsia-500/20 px-2.5 py-1 rounded-full shadow-[0_0_10px_rgba(224,0,255,0.1)]">
+                  <Wallet className="w-3.5 h-3.5 text-fuchsia-400" />
+                  <span className="text-white font-medium text-sm">₹{balance}</span>
+                  <button 
+                    onClick={() => setIsAddBalanceOpen(true)}
+                    className="ml-1 bg-fuchsia-600 hover:bg-fuchsia-500 text-white p-1 rounded-full shadow-[0_0_8px_rgba(224,0,255,0.4)] transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                <button 
+                  className="text-zinc-300 hover:text-fuchsia-400 transition-colors"
+                  onClick={onShowPurchases}
+                >
+                  <History className="w-5 h-5" />
+                </button>
+              </>
             ) : (
               <button 
                 className="text-zinc-300 hover:text-fuchsia-400 transition-colors"
@@ -133,7 +159,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                 </div>
               </div>
             )}
-            {(currentUser?.email === 'barikarman207@gmail.com' || ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '')) && (
+            {(currentUser?.email?.includes('barikarman') || ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || currentUser?.customId?.includes('barikarman')) && (
               currentPage === 'home' ? (
                 <button 
                   onClick={() => { onNavigate?.('dashboard'); setIsMenuOpen(false); }}
@@ -161,5 +187,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
         </div>
       )}
     </header>
+    <AddBalanceModal isOpen={isAddBalanceOpen} onClose={() => setIsAddBalanceOpen(false)} />
+    </>
   );
 }

@@ -1,24 +1,300 @@
-import { Check, X, Minus, Plus, QrCode, Loader2, Key } from 'lucide-react';
+import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet } from 'lucide-react';
 import { useState, useEffect, SVGProps } from 'react';
-import { useInventory } from '../store';
+import confetti from 'canvas-confetti';
+import { FastAverageColor } from 'fast-average-color';
+import { useInventory, useBalance } from '../store';
 import { useAuth } from '../lib/useAuth';
 
 interface PricingProps {
   onPurchaseSuccess?: () => void;
+  onRequiresLogin?: () => void;
 }
 
-export function Pricing({ onPurchaseSuccess }: PricingProps) {
+const playSuccessSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    
+    const playTone = (freq: number, delay: number, duration: number) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+      
+      gain.gain.setValueAtTime(0, ctx.currentTime + delay);
+      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + delay + 0.05);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + duration - 0.05);
+      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + duration);
+      
+      osc.start(ctx.currentTime + delay);
+      osc.stop(ctx.currentTime + delay + duration);
+    };
+
+    playTone(523.25, 0, 0.15); // C5
+    playTone(659.25, 0.15, 0.3); // E5
+  } catch (e) {
+    console.error('Audio playback failed', e);
+  }
+};
+
+const ProductCard = ({ category, pricingOptions, openPurchaseModal, fallbackColor }: any) => {
+  const [accentColor, setAccentColor] = useState<string>(fallbackColor);
+
+  useEffect(() => {
+    const fac = new FastAverageColor();
+    fac.getColorAsync(category.logoUrl)
+      .then(color => {
+        if (color && color.hex) {
+          setAccentColor(color.hex);
+        }
+      })
+      .catch(e => {
+        console.warn("Could not extract color for", category.name, e);
+      });
+  }, [category.logoUrl]);
+
+  return (
+    <div key={category.id} className="bg-zinc-900 rounded-2xl sm:rounded-3xl overflow-hidden flex flex-col relative border-2 transition-colors duration-500"
+         style={{ borderColor: accentColor, boxShadow: `0 0 30px ${accentColor}4D` }}>
+      {category.popular && (
+        <div className="absolute top-0 right-0 text-white text-[10px] sm:text-xs font-bold px-2 py-0.5 sm:px-3 sm:py-1 rounded-bl-lg uppercase tracking-wider z-10 transition-colors duration-500"
+             style={{ backgroundColor: accentColor, boxShadow: `0 0 10px ${accentColor}99` }}>
+          Popular
+        </div>
+      )}
+      <div className="p-4 sm:p-10 bg-zinc-950/50 text-white flex flex-col items-center text-center">
+        <img src={category.logoUrl} alt={category.name} className="w-12 h-12 sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl object-cover bg-zinc-950 mb-3 sm:mb-6 border transition-colors duration-500"
+             style={{ borderColor: `${accentColor}80`, boxShadow: `0 0 15px ${accentColor}80` }} />
+        <h3 className="text-base sm:text-2xl font-semibold mb-1 sm:mb-2 drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]">{category.name}</h3>
+        <div className="flex items-baseline drop-shadow-[0_0_8px_rgba(224,0,255,0.4)]">
+          <span className="text-2xl sm:text-5xl font-display font-bold tracking-tight">
+            ₹{pricingOptions.filter((p: any) => p.category === category.id).sort((a: any,b: any)=>a.price - b.price)[0]?.price || 100}
+          </span>
+          <span className="text-gray-400 text-[10px] sm:text-base ml-1 sm:ml-2">/ start</span>
+        </div>
+        <div className="mt-3 sm:mt-4 flex flex-col items-center">
+          <div className="flex flex-wrap justify-center gap-1 sm:gap-2">
+            {pricingOptions.filter((p: any) => p.category === category.id).some((p: any) => p.stock > 0) ? (
+              <div className="flex items-center bg-green-500/10 text-green-500 px-2 sm:px-3 py-1 rounded-full text-[9px] sm:text-xs font-semibold border border-green-500/30">
+                <span className="relative flex h-1.5 w-1.5 sm:h-2 sm:w-2 mr-1 sm:mr-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-green-500"></span>
+                </span>
+                Keys Available
+              </div>
+            ) : (
+              <div className="flex items-center bg-red-500/10 text-red-500 px-2 sm:px-3 py-1 rounded-full text-[9px] sm:text-xs font-semibold border border-red-500/30">
+                <span className="relative flex h-1.5 w-1.5 sm:h-2 sm:w-2 mr-1 sm:mr-1.5">
+                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 sm:h-2 sm:w-2 bg-red-500"></span>
+                </span>
+                Out of Stock
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      
+      <div className="p-4 sm:p-10 flex-grow flex flex-col justify-end">
+        <button 
+          onClick={() => openPurchaseModal(category.id)}
+          className="w-full inline-flex items-center justify-center px-2 py-2.5 sm:px-8 sm:py-4 text-xs sm:text-lg font-medium rounded-lg sm:rounded-xl transition-all hover:-translate-y-1 text-white"
+          style={{ 
+            backgroundColor: accentColor, 
+            boxShadow: `0 0 20px ${accentColor}66`
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.boxShadow = `0 0 25px ${accentColor}99`;
+            e.currentTarget.style.transform = 'translateY(-4px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.boxShadow = `0 0 20px ${accentColor}66`;
+            e.currentTarget.style.transform = 'none';
+          }}
+        >
+          Buy {category.name}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const { currentUser } = useAuth();
   const { items: pricingOptions, purchaseKeys, settings } = useInventory(currentUser?.uid);
+  const { balance, deductBalance, addBalance } = useBalance(currentUser?.uid);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [selectedDuration, setSelectedDuration] = useState(pricingOptions[0]);
   const [quantity, setQuantity] = useState(1);
-  const [paymentStep, setPaymentStep] = useState<'configure' | 'qr' | 'processing' | 'success'>('configure');
+  const [paymentStep, setPaymentStep] = useState<'configure' | 'qr' | 'processing' | 'success' | 'wallet_confirm'>('configure');
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
   const [utrNumber, setUtrNumber] = useState('');
   const [paymentError, setPaymentError] = useState('');
 
+  const [orderId, setOrderId] = useState('');
+  const [paymentUrl, setPaymentUrl] = useState('');
+  const [qrUrl, setQrUrl] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [timeLeft, setTimeLeft] = useState(300);
+
+  // Resume payment flow if pending
+  useEffect(() => {
+    const pendingStr = sessionStorage.getItem('pendingPayment');
+    if (pendingStr && currentUser) {
+      try {
+        const pending = JSON.parse(pendingStr);
+        // Only resume if less than 15 mins old
+        if (Date.now() - pending.timestamp < 15 * 60 * 1000) {
+          setSelectedProduct(pending.selectedProduct);
+          setSelectedDuration(pending.selectedDuration);
+          setQuantity(pending.quantity);
+          setOrderId(pending.orderId);
+          setPaymentStep('qr');
+          setTimeLeft(Math.max(0, 300 - Math.floor((Date.now() - pending.timestamp) / 1000)));
+        } else {
+          sessionStorage.removeItem('pendingPayment');
+        }
+      } catch(e) {}
+    }
+  }, [currentUser]);
+
+  const handleCopy = (key: string, index: number) => {
+    navigator.clipboard.writeText(key);
+    setCopiedIndex(index);
+    setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const handleProceedWithWallet = async () => {
+    if (!currentUser) return;
+    const totalPrice = selectedDuration.price * quantity;
+    if (balance < totalPrice) {
+      setPaymentError('Insufficient wallet balance. Please top up your wallet first.');
+      return;
+    }
+    
+    setPaymentError('');
+    setPaymentStep('wallet_confirm');
+  };
+
+  const confirmWalletPurchase = async () => {
+    if (!currentUser) return;
+    const totalPrice = selectedDuration.price * quantity;
+    if (balance < totalPrice) return;
+    
+    setPaymentError('');
+    setPaymentStep('processing');
+    
+    // Deduct balance and immediately issue keys
+    if (deductBalance(currentUser.uid, totalPrice)) {
+      try {
+        const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser.uid, currentUser.email || undefined);
+        if (keys.length < quantity && currentUser?.uid) {
+          const missingCount = quantity - keys.length;
+          addBalance(currentUser.uid, missingCount * selectedDuration.price);
+        }
+        playSuccessSound();
+        confetti({
+          particleCount: 150,
+          spread: 80,
+          origin: { y: 0.6 },
+          colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+        });
+        setPaymentStep('success');
+        setGeneratedKeys(keys);
+      } catch (err) {
+        setPaymentError('Failed to generate keys. Please contact support.');
+        setPaymentStep('configure');
+      }
+    } else {
+       setPaymentError('Failed to deduct balance.');
+       setPaymentStep('configure');
+    }
+  };
+
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    let isMounted = true;
+    let interval: NodeJS.Timeout;
+
+    if (paymentStep === 'qr') {
+      if (timeLeft > 0) {
+        interval = setInterval(() => {
+          setTimeLeft((prev) => prev - 1);
+        }, 1000);
+      } else {
+        setPaymentError('Payment window expired. Please try again.');
+        setPaymentStep('configure');
+      }
+    }
+
+    const pollPayment = async () => {
+      if (!orderId || paymentStep !== 'qr' || isVerifying) return;
+      
+      try {
+        const res = await fetch('/api/fampay/verify-order', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order_id: orderId })
+        });
+        const data = await res.json();
+        
+        // Wait for status 'success' or 'PAID' from the webhook/verify endpoint
+        const status = (data.status || '').toLowerCase();
+        if (isMounted && (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID')) {
+           setIsVerifying(true);
+           setPaymentStep('processing');
+           
+           const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
+           if (keys.length < quantity && currentUser?.uid) {
+             const missingCount = quantity - keys.length;
+             addBalance(currentUser.uid, missingCount * selectedDuration.price);
+           }
+           playSuccessSound();
+           confetti({
+             particleCount: 150,
+             spread: 80,
+             origin: { y: 0.6 },
+             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+           });
+           setPaymentStep('success');
+           setGeneratedKeys(keys);
+           sessionStorage.removeItem('pendingPayment');
+           return; // Stop polling on success
+        } else if (isMounted && (status === 'error' || status === 'expired' || data.data?.status === 'FAILED')) {
+           setPaymentError(data.message || 'Payment verification failed or expired.');
+           setPaymentStep('configure');
+           sessionStorage.removeItem('pendingPayment');
+           return; // Stop polling on error
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+      }
+      
+      if (isMounted) {
+        timeoutId = setTimeout(pollPayment, 5000);
+      }
+    };
+
+    if (paymentStep === 'qr' && orderId) {
+      timeoutId = setTimeout(pollPayment, 5000);
+    }
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+      clearInterval(interval);
+    };
+  }, [paymentStep, orderId, isVerifying, selectedDuration, quantity, currentUser, purchaseKeys, onPurchaseSuccess, timeLeft]);
+
   const openPurchaseModal = (productName: string) => {
+    if (!currentUser) {
+      if (onRequiresLogin) onRequiresLogin();
+      return;
+    }
     setSelectedProduct(productName);
     const categoryOptions = pricingOptions.filter(p => p.category === productName);
     const inStockOptions = categoryOptions.filter(p => p.stock > 0);
@@ -28,6 +304,10 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
     setGeneratedKeys([]);
     setUtrNumber('');
     setPaymentError('');
+    setOrderId('');
+    setPaymentUrl('');
+    setQrUrl('');
+    setTimeLeft(300);
   };
 
   const closePurchaseModal = () => {
@@ -36,131 +316,80 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
 
   const handleQuantityChange = (delta: number) => {
     const newQuantity = quantity + delta;
-    if (newQuantity >= 1 && newQuantity <= 10 && newQuantity <= (selectedDuration?.stock || 0)) {
+    if (newQuantity >= 1 && newQuantity <= 10) {
       setQuantity(newQuantity);
     }
   };
 
-  const handleProceed = () => {
-    setPaymentStep('qr');
-  };
-
-  const handleCheckPayment = () => {
-    if (utrNumber.length !== 12 || !/^\d+$/.test(utrNumber)) {
-      setPaymentError('Payment not verified. Please enter a valid 12-digit UTR/Reference number.');
-      return;
-    }
-    setPaymentError('');
+  const handleProceed = async () => {
     setPaymentStep('processing');
-    
-    setTimeout(async () => {
-      // In a real application, you would send this UTR number to your backend server
-      // and verify it against a payment gateway API (like Razorpay, PhonePe, or Cashfree)
-      // to ensure the transaction is real and matches the exact amount. 
-      // Since this is a UI prototype without a backend, we reject all UTRs except our mock one.
-
-      if (utrNumber === '123456789012') {
-        const purchased = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
-        setGeneratedKeys(purchased);
-        setPaymentStep('success');
+    try {
+      const totalPrice = selectedDuration.price * quantity;
+      const res = await fetch('/api/fampay/create-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: totalPrice })
+      });
+      
+      const data = await res.json();
+      if (data.order_id) {
+        setOrderId(data.order_id);
         
-        // Auto-redirect to purchase history where they can view the keys
-        setTimeout(() => {
-          closePurchaseModal();
-          if (onPurchaseSuccess) {
-            onPurchaseSuccess();
-          }
-        }, 2000);
-      } else {
-        // Reject fake/random UTRs
+        const redirectUrl = data.checkout_url || data.payment_url || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(selectedProduct || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`;
+        setPaymentUrl(redirectUrl);
+
+        if (data.qr_url) {
+           setQrUrl(data.qr_url);
+        }
+        setTimeLeft(300);
         setPaymentStep('qr');
-        setPaymentError('Payment verification failed. No valid transaction found for this UTR number. If you just paid, please wait 2-3 minutes and try again.');
+
+        sessionStorage.setItem('pendingPayment', JSON.stringify({
+          orderId: data.order_id,
+          selectedProduct: selectedProduct,
+          selectedDuration: selectedDuration,
+          quantity: quantity,
+          timestamp: Date.now()
+        }));
+        
+        // Auto redirect
+        if (redirectUrl.startsWith('http')) {
+          window.open(redirectUrl, '_blank');
+        } else {
+          window.location.href = redirectUrl;
+        }
+      } else {
+        setPaymentError(data.error || data.message || 'Failed to initialize payment.');
+        setPaymentStep('configure');
       }
-    }, 2500); 
+    } catch (err: any) {
+      console.error(err);
+      setPaymentError(err.message || 'Failed to initialize payment');
+      setPaymentStep('configure');
+    }
   };
+
+
 
   const totalPrice = selectedDuration.price * quantity;
 
   return (
     <section id="pricing" className="py-12 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-          {settings.categories.map((category) => (
-            <div key={category.id} className={`bg-zinc-900 rounded-3xl overflow-hidden flex flex-col relative ${
-              category.theme === 'dark' ? 'border-2 border-fuchsia-500 shadow-[0_0_30px_rgba(224,0,255,0.3)]' : 'border border-fuchsia-500/20 shadow-[0_0_15px_rgba(224,0,255,0.1)]'
-            }`}>
-              {category.popular && (
-                <div className="absolute top-0 right-0 bg-fuchsia-600 text-white text-xs font-bold px-3 py-1 rounded-bl-lg uppercase tracking-wider shadow-[0_0_10px_rgba(224,0,255,0.6)]">
-                  Most Popular
-                </div>
-              )}
-              <div className="p-8 sm:p-10 bg-zinc-950/50 text-white flex flex-col items-center text-center">
-                <img src={category.logoUrl} alt={category.name} className="w-24 h-24 rounded-2xl shadow-[0_0_15px_rgba(224,0,255,0.5)] border border-fuchsia-500/50 mb-6 object-cover bg-zinc-950" />
-                <h3 className="text-2xl font-semibold mb-2 drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]">{category.name}</h3>
-                <p className="text-zinc-400 mb-6">{category.theme === 'dark' ? 'Maximum performance and ultimate control.' : 'Perfect for standard devices.'}</p>
-                <div className="flex items-baseline drop-shadow-[0_0_8px_rgba(224,0,255,0.4)]">
-                  <span className="text-5xl font-display font-bold tracking-tight">
-                    ₹{pricingOptions.filter(p => p.category === category.id).sort((a,b)=>a.price - b.price)[0]?.price || 100}
-                  </span>
-                  <span className="text-gray-400 ml-2">/ starting</span>
-                </div>
-                <div className="mt-4 flex flex-col items-center">
-                  <div className="flex flex-wrap justify-center gap-2">
-                    {pricingOptions.filter(p => p.category === category.id).some(p => p.stock > 0) ? (
-                      <div className="flex items-center bg-green-500/10 text-green-500 px-3 py-1 rounded-full text-xs font-semibold border border-green-500/30">
-                        <span className="relative flex h-2 w-2 mr-1.5">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-                        </span>
-                        Keys Available Now
-                      </div>
-                    ) : (
-                      <div className="flex items-center bg-red-500/10 text-red-500 px-3 py-1 rounded-full text-xs font-semibold border border-red-500/30">
-                        <span className="relative flex h-2 w-2 mr-1.5">
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                        </span>
-                        Currently Out of Stock
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-gray-400 text-xs mt-2 font-medium">Restock Days: Mon, Wed, Fri</p>
-                </div>
-              </div>
-              
-              <div className="p-8 sm:p-10 flex-grow flex flex-col">
-                <ul className="space-y-4 mb-8 flex-grow">
-                  {[
-                    `Full access to ${category.name} features`,
-                    category.theme === 'dark' ? 'Advanced system-level modifications' : 'Standard performance optimization',
-                    category.theme === 'dark' ? 'Priority VIP customer support' : 'Flexible duration options',
-                    'Safe & secure bypassing',
-                    '24/7 dedicated support team'
-                  ].map((feature, i) => (
-                    <li key={i} className="flex items-start">
-                      <div className="flex-shrink-0">
-                        <Check className={`h-6 w-6 ${category.theme === 'dark' ? 'text-purple-600' : 'text-green-500'}`} />
-                      </div>
-                      <p className="ml-3 text-base text-gray-700">{feature}</p>
-                    </li>
-                  ))}
-                </ul>
-                
-                <button 
-                  onClick={() => openPurchaseModal(category.id)}
-                  className={`w-full inline-flex items-center justify-center px-8 py-4 text-lg font-medium rounded-xl transition-all hover:-translate-y-1 ${
-                    category.theme === 'dark' ? 'text-white bg-fuchsia-600 hover:bg-fuchsia-500 shadow-[0_0_20px_rgba(224,0,255,0.4)] hover:shadow-[0_0_25px_rgba(224,0,255,0.6)]' : 'text-zinc-100 bg-zinc-800 border border-fuchsia-500/30 hover:border-fuchsia-500'
-                  }`}
-                >
-                  Buy {category.name}
-                </button>
-                {category.theme === 'dark' && (
-                  <p className="text-center text-sm text-zinc-500 mt-4 flex items-center justify-center">
-                    Secured by Stripe <ShieldCheckIcon className="w-4 h-4 ml-1" />
-                  </p>
-                )}
-              </div>
-            </div>
-          ))}
+        <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 max-w-5xl mx-auto">
+          {settings.categories.map((category, index) => {
+            const fallbackColors = ['#d946ef', '#06b6d4', '#10b981', '#f59e0b'];
+            const fallbackColor = fallbackColors[index % fallbackColors.length];
+            return (
+              <ProductCard 
+                key={category.id} 
+                category={category} 
+                pricingOptions={pricingOptions} 
+                openPurchaseModal={openPurchaseModal} 
+                fallbackColor={fallbackColor} 
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -172,7 +401,6 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
             <div className="flex justify-between items-center p-6 border-b border-fuchsia-500/20">
               <h3 className="text-2xl font-bold text-white font-display drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]">
                 {paymentStep === 'configure' && 'Configure Plan'}
-                {paymentStep === 'qr' && 'Complete Payment'}
                 {paymentStep === 'processing' && 'Processing...'}
                 {paymentStep === 'success' && 'Success'}
               </h3>
@@ -206,7 +434,6 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
                           onClick={() => {
                             if (option.stock > 0) {
                               setSelectedDuration(option);
-                              if (quantity > option.stock) setQuantity(option.stock);
                             }
                           }}
                           disabled={option.stock <= 0}
@@ -270,68 +497,149 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
                 </div>
                 
                 {/* Purchase Summary & Action */}
-                <div className="p-6 bg-zinc-950/50 border-t border-fuchsia-500/20 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-zinc-400 mb-1">Total Amount</p>
-                    <p className="text-3xl font-bold font-display text-white">₹{totalPrice}</p>
+                <div className="p-6 bg-zinc-950/50 border-t border-fuchsia-500/20 flex flex-col gap-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-zinc-400 mb-1">Total Amount</p>
+                      <p className="text-3xl font-bold font-display text-white">₹{totalPrice}</p>
+                    </div>
                   </div>
-                  <button 
-                    onClick={handleProceed}
-                    disabled={!selectedDuration || selectedDuration.stock <= 0 || quantity > selectedDuration.stock}
-                    className="px-8 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-lg font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] hover:-translate-y-0.5"
-                  >
-                    Proceed
-                  </button>
+                  
+                  {paymentError && (
+                    <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm text-center">
+                      {paymentError}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col gap-3 mt-2">
+                    <button 
+                      onClick={handleProceed}
+                      disabled={!selectedDuration || selectedDuration.stock <= 0 || quantity > selectedDuration.stock}
+                      className="w-full px-4 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-base font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all hover:shadow-[0_0_20px_rgba(224,0,255,0.6)]"
+                    >
+                      Pay via UPI (QR Code)
+                    </button>
+                    
+                    {currentUser && (
+                      <button 
+                        onClick={handleProceedWithWallet}
+                        disabled={!selectedDuration || selectedDuration.stock <= 0 || quantity > selectedDuration.stock || balance < totalPrice}
+                        className="w-full px-4 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-base font-medium rounded-xl border border-zinc-700 transition-all flex items-center justify-center gap-2"
+                      >
+                        <Wallet className="w-5 h-5 text-fuchsia-400" />
+                        Buy with Wallet Balance (₹{balance})
+                      </button>
+                    )}
+                  </div>
                 </div>
               </>
             )}
 
-            {paymentStep === 'qr' && (
+            {paymentStep === 'wallet_confirm' && (
               <div className="p-6 space-y-6 flex flex-col items-center text-center">
                 <div className="w-16 h-16 bg-fuchsia-500/10 text-fuchsia-500 rounded-full flex items-center justify-center mb-2 shadow-[0_0_15px_rgba(224,0,255,0.3)]">
-                  <QrCode className="w-8 h-8" />
+                  <Wallet className="w-8 h-8" />
                 </div>
                 <div>
-                  <h4 className="text-xl font-bold text-white mb-2">Scan & Pay</h4>
-                  <p className="text-zinc-400">Scan the QR code below with any UPI app to pay <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{totalPrice}</span></p>
+                  <h4 className="text-xl font-bold text-white mb-2">Confirm Purchase</h4>
+                  <p className="text-zinc-400">Are you sure you want to spend <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{selectedDuration.price * quantity}</span> from your wallet balance?</p>
+                  <p className="text-sm text-zinc-500 mt-2">Your current balance is ₹{balance}</p>
                 </div>
                 
-                <div className="bg-white p-4 border-2 border-fuchsia-500/50 rounded-2xl shadow-[0_0_20px_rgba(224,0,255,0.4)] inline-block">
-                  <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`upi://pay?pa=armanbarik@fam&pn=${selectedProduct || 'DRIPCLINT'}&am=${totalPrice}&cu=INR`)}`}
-                    alt="UPI QR Code"
-                    className="w-48 h-48"
-                  />
+                {paymentError && (
+                  <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm mb-2 w-full">
+                    {paymentError}
+                  </div>
+                )}
+
+                <div className="w-full flex gap-3 mt-4">
+                  <button
+                    onClick={() => setPaymentStep('configure')}
+                    className="flex-1 px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-all font-medium border border-zinc-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmWalletPurchase}
+                    className="flex-1 px-4 py-3 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-xl transition-all shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] font-medium"
+                  >
+                    Confirm & Buy
+                  </button>
                 </div>
-                <div className="text-sm text-zinc-400 max-w-xs">
-                  UPI ID: <span className="font-mono text-zinc-200 bg-zinc-800 px-2 py-1 rounded">armanbarik@fam</span>
+              </div>
+            )}
+
+            {paymentStep === 'qr' && (
+              <div className="p-10 space-y-6 flex flex-col items-center text-center">
+                <Loader2 className="w-12 h-12 text-fuchsia-500 animate-spin mb-4" />
+                <div>
+                  <h4 className="text-2xl font-bold text-white mb-2">Redirecting...</h4>
+                  <p className="text-zinc-400">Please complete your payment of <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{totalPrice}</span> on the gateway.</p>
                 </div>
+                
+                <a 
+                  href={paymentUrl || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(selectedProduct || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
+                  target={paymentUrl?.startsWith('http') ? '_blank' : '_self'}
+                  rel="noopener noreferrer"
+                  className="mt-6 px-6 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 font-medium rounded-xl transition-all border border-white/10 flex items-center gap-2"
+                >
+                  Click here if not redirected
+                </a>
 
                 <div className="w-full pt-4 space-y-4">
-                  <div className="text-left">
-                    <label className="block text-sm font-medium text-zinc-300 mb-2">
-                      Enter 12-digit UTR / Reference Number
-                    </label>
-                    <input 
-                      type="text" 
-                      value={utrNumber}
-                      onChange={(e) => setUtrNumber(e.target.value)}
-                      placeholder="e.g. 123456789012"
-                      className={`w-full px-4 py-3 bg-zinc-900 text-white placeholder-zinc-600 border ${paymentError ? 'border-red-500 focus:ring-red-500' : 'border-zinc-700 focus:border-fuchsia-500 focus:ring-fuchsia-500/20'} rounded-xl focus:ring-2 outline-none transition-all`}
-                      maxLength={12}
-                    />
-                    {paymentError && <p className="text-sm text-red-400 mt-2">{paymentError}</p>}
-                    <p className="text-xs text-zinc-500 mt-2">
-                      * Demo Mode: Use UTR <span className="font-mono bg-zinc-800 px-1 py-0.5 rounded text-zinc-300">123456789012</span> to test a successful purchase. Real verifications require a payment gateway backend.
-                    </p>
+                  <div className="flex items-center justify-center gap-2 text-fuchsia-400 mt-4 animate-pulse">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-sm font-medium">Waiting for payment... ({Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')})</span>
                   </div>
+                  
+                  {paymentError && (
+                    <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm mb-4 text-center">
+                      {paymentError}
+                    </div>
+                  )}
 
                   <button 
-                    onClick={handleCheckPayment}
-                    className="w-full px-6 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-lg font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] transition-all flex items-center justify-center"
+                    onClick={async () => {
+                       setPaymentError('');
+                       try {
+                         const res = await fetch('/api/fampay/verify-order', {
+                           method: 'POST',
+                           headers: { 'Content-Type': 'application/json' },
+                           body: JSON.stringify({ order_id: orderId })
+                         });
+                         const data = await res.json();
+                         const status = (data.status || '').toLowerCase();
+                         if (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID') {
+                           setIsVerifying(true);
+                           setPaymentStep('processing');
+                           const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
+                           if (keys.length < quantity && currentUser?.uid) {
+                             const missingCount = quantity - keys.length;
+                             addBalance(currentUser.uid, missingCount * selectedDuration.price);
+                           }
+                           playSuccessSound();
+                           confetti({
+                             particleCount: 150,
+                             spread: 80,
+                             origin: { y: 0.6 },
+                             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+                           });
+                           setPaymentStep('success');
+                           setGeneratedKeys(keys);
+                           sessionStorage.removeItem('pendingPayment');
+                         } else {
+                           setPaymentError(data.message || 'Payment not yet received. Please wait or try again.');
+                         }
+                       } catch (e) {
+                         setPaymentError('Could not verify at this time.');
+                       }
+                    }}
+                    disabled={isVerifying}
+                    className="w-full px-6 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 text-white text-lg font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] transition-all flex items-center justify-center mt-2"
                   >
-                    Check Payment
+                    I have paid - Verify Now
                   </button>
+                  <p className="text-xs text-zinc-500">Click if your payment was successful but isn't reflecting automatically.</p>
                 </div>
               </div>
             )}
@@ -339,8 +647,8 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
             {paymentStep === 'processing' && (
               <div className="p-12 space-y-4 flex flex-col items-center text-center">
                 <Loader2 className="w-12 h-12 text-fuchsia-500 animate-spin flex items-center justify-center" style={{ filter: 'drop-shadow(0 0 10px rgba(224,0,255,0.6))' }} />
-                <h4 className="text-xl font-bold text-white">Checking Payment...</h4>
-                <p className="text-zinc-400">Please do not close this window.</p>
+                <h4 className="text-xl font-bold text-white">Processing...</h4>
+                <p className="text-zinc-400">Please wait while we process your request.</p>
               </div>
             )}
 
@@ -350,7 +658,7 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
                   <Check className="w-8 h-8" />
                 </div>
                 <div>
-                  <h4 className="text-2xl font-bold text-white mb-2">Payment Successful!</h4>
+                  <h4 className="text-2xl font-bold text-white mb-2">Purchase Successful!</h4>
                   {generatedKeys.length > 0 ? (
                     <div className="bg-green-950/30 border border-green-500/20 p-4 rounded-xl text-left mt-4 shadow-[0_0_10px_rgba(74,222,128,0.1)]">
                       <p className="text-green-400 text-sm mb-3">
@@ -358,25 +666,46 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
                       </p>
                       <div className="space-y-2">
                         {generatedKeys.map((key, i) => (
-                          <div key={i} className="flex items-center justify-between bg-zinc-900 px-4 py-3 border border-green-500/20 rounded-lg">
+                          <div key={i} className="flex items-center justify-between bg-zinc-900 px-4 py-3 border border-green-500/20 rounded-lg group">
                             <span className="font-mono text-zinc-100 text-sm tracking-widest">{key}</span>
-                            <Key className="w-4 h-4 text-green-400" />
+                            <button 
+                              onClick={() => handleCopy(key, i)}
+                              className="text-zinc-400 hover:text-white hover:bg-zinc-800 p-1.5 rounded-md transition-colors"
+                              title="Copy to clipboard"
+                            >
+                              {copiedIndex === i ? (
+                                <Check className="w-4 h-4 text-green-400" />
+                              ) : (
+                                <Copy className="w-4 h-4" />
+                              )}
+                            </button>
                           </div>
                         ))}
                       </div>
+                      
+                      {generatedKeys.length < quantity && (
+                        <div className="mt-4 p-3 bg-amber-950/40 border border-amber-500/30 rounded-lg text-amber-300 text-xs">
+                          <strong>Note:</strong> You requested {quantity} keys but only {generatedKeys.length} were in stock. The remaining amount has been <strong>refunded to your ARMAN X STORE Wallet</strong>.
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="bg-amber-950/30 border border-amber-500/20 p-4 rounded-xl text-left mt-4 text-amber-400 text-sm shadow-[0_0_10px_rgba(251,191,36,0.1)]">
-                      <strong className="text-amber-300">Currently out of stock.</strong> We have received your payment, but license keys are temporarily out of stock. We will manually add your keys to your order later.
+                      <strong className="text-amber-300">Keys out of stock.</strong> Your payment was successful, but there weren't enough license keys available. The paid amount has been <strong>automatically refunded to your ARMAN X STORE Wallet balance</strong>.
                     </div>
                   )}
                 </div>
 
                 <div className="w-full pt-4">
-                  <p className="text-zinc-400 flex items-center justify-center text-sm">
-                    <Loader2 className="w-4 h-4 text-fuchsia-500 animate-spin mr-2" />
-                    Redirecting to your keys...
-                  </p>
+                  <button 
+                    onClick={() => {
+                      closePurchaseModal();
+                      if (onPurchaseSuccess) onPurchaseSuccess();
+                    }}
+                    className="w-full bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-bold py-3.5 rounded-xl transition duration-300 shadow-[0_0_15px_rgba(224,0,255,0.4)]"
+                  >
+                    View Purchase History
+                  </button>
                 </div>
               </div>
             )}
@@ -384,25 +713,5 @@ export function Pricing({ onPurchaseSuccess }: PricingProps) {
         </div>
       )}
     </section>
-  );
-}
-
-function ShieldCheckIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-      <path d="m9 12 2 2 4-4" />
-    </svg>
   );
 }
