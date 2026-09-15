@@ -24,6 +24,7 @@ async function startServer() {
       const apiKey = 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
       const clientTxnId = `txn_${Math.random().toString(36).substring(2, 11)}`;
       
+      const origin = req.headers.origin || `http://${req.headers.host}`;
       const response = await fetch(`https://famgateway.in/api/create-order.php`, {
         method: 'POST',
         headers: {
@@ -32,8 +33,8 @@ async function startServer() {
         },
         body: JSON.stringify({
           amount: parseFloat(amount).toFixed(2),
-          redirect_url: 'https://ais-dev-s5atqxhsiz6qmotgrq7mrc-935483012651.asia-east1.run.app/success',
-          webhook_url: 'https://ais-dev-s5atqxhsiz6qmotgrq7mrc-935483012651.asia-east1.run.app/api/fampay/webhook'
+          redirect_url: `${origin}/success`,
+          webhook_url: `${origin}/api/fampay/webhook`
         })
       });
 

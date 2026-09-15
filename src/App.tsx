@@ -23,6 +23,7 @@ export default function App() {
       
       // Clean up the URL if it's just /success
       if (path === '/success') {
+         sessionStorage.setItem('paymentRedirected', 'true');
          window.history.replaceState({}, document.title, '/');
       }
     }

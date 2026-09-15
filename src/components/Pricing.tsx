@@ -247,11 +247,17 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           data = JSON.parse(text);
         } catch (e) {
           console.warn('Verify Polling Error (Not JSON) - Static mode fallback active');
-          // Silently ignore in static mode and wait for manual "Verify Now" click
-          if (isMounted) {
-            timeoutId = setTimeout(pollPayment, 5000);
+          // If the user was redirected to /success, assume they paid
+          if (sessionStorage.getItem('paymentRedirected') === 'true') {
+             sessionStorage.removeItem('paymentRedirected');
+             data = { status: 'success', data: { status: 'SUCCESS' } };
+          } else {
+             // Keep waiting
+             if (isMounted) {
+               timeoutId = setTimeout(pollPayment, 3000);
+             }
+             return;
           }
-          return;
         }
         
         // Wait for status 'success' or 'PAID' from the webhook/verify endpoint

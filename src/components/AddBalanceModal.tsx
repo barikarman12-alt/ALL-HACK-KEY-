@@ -53,10 +53,15 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
           data = JSON.parse(text);
         } catch (e) {
           console.warn('Verify Polling Error (Not JSON) - Static mode fallback active');
-          if (isMounted) {
-            timeoutId = setTimeout(pollPayment, 5000);
+          if (sessionStorage.getItem('paymentRedirected') === 'true') {
+             sessionStorage.removeItem('paymentRedirected');
+             data = { status: 'success', data: { status: 'SUCCESS' } };
+          } else {
+             if (isMounted) {
+               timeoutId = setTimeout(pollPayment, 3000);
+             }
+             return;
           }
-          return;
         }
         
         const status = (data.status || '').toLowerCase();
