@@ -6,6 +6,8 @@ import {
   updateProfile, 
   signOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
+  signInWithPopup,
   User as FirebaseUser
 } from 'firebase/auth';
 
@@ -46,6 +48,22 @@ export const logOutMock = async () => {
     await signOut(auth);
   } catch (error) {
     console.error("Error signing out", error);
+  }
+};
+
+export const loginWithGoogle = async () => {
+  try {
+    const provider = new GoogleAuthProvider();
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
+    return {
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      customId: user.email?.split('@')[0] || ''
+    };
+  } catch (error: any) {
+    throw { code: error.code, message: error.message || 'Google Sign-In failed.' };
   }
 };
 
