@@ -68,22 +68,32 @@ export function Dashboard() {
   const [deleteProductConfirmId, setDeleteProductConfirmId] = useState<string | null>(null);
 
   const [draftCategories, setDraftCategories] = useState(settings.categories);
+  const [draftSiteName, setDraftSiteName] = useState(settings.siteName || 'ARMAN X STORE');
+  const [draftSiteLogoUrl, setDraftSiteLogoUrl] = useState(settings.siteLogoUrl || '/logo.png');
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Sync draftCategories with global settings if no unsaved changes
+  // Sync drafts with global settings if no unsaved changes
   useEffect(() => {
     if (!hasChanges) {
       setDraftCategories(settings.categories);
+      setDraftSiteName(settings.siteName || 'ARMAN X STORE');
+      setDraftSiteLogoUrl(settings.siteLogoUrl || '/logo.png');
     }
-  }, [settings.categories, hasChanges]);
+  }, [settings, hasChanges]);
 
   const handleSaveSettings = () => {
-    updateSettings({ categories: draftCategories });
+    updateSettings({ 
+      categories: draftCategories,
+      siteName: draftSiteName,
+      siteLogoUrl: draftSiteLogoUrl
+    });
     setHasChanges(false);
   };
 
   const handleDiscardChanges = () => {
     setDraftCategories(settings.categories);
+    setDraftSiteName(settings.siteName || 'ARMAN X STORE');
+    setDraftSiteLogoUrl(settings.siteLogoUrl || '/logo.png');
     setHasChanges(false);
     setDeleteCategoryConfirmId(null);
   };
@@ -411,6 +421,43 @@ export function Dashboard() {
             <h2 className="text-xl font-bold text-white mb-6 drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]">Store Settings</h2>
             
             <div className="space-y-8 max-w-2xl">
+              <div className="border-b border-zinc-800 pb-8 space-y-6">
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Site Name</label>
+                  <input
+                    type="text"
+                    value={draftSiteName}
+                    onChange={(e) => {
+                      setDraftSiteName(e.target.value);
+                      setHasChanges(true);
+                    }}
+                    className="w-full px-4 py-2 bg-zinc-950 border border-zinc-800 text-white rounded-xl text-sm focus:outline-none focus:ring-2 focus:border-fuchsia-500 focus:ring-fuchsia-500/20 transition-all"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-zinc-400 mb-1">Site Logo URL (or upload)</label>
+                  <div className="flex items-center gap-3">
+                    {draftSiteLogoUrl && <img src={draftSiteLogoUrl} alt="Logo" className="w-10 h-10 rounded-lg object-cover border border-zinc-800 shrink-0" />}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onloadend = () => {
+                            setDraftSiteLogoUrl(reader.result as string);
+                            setHasChanges(true);
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                      className="w-full text-sm text-zinc-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-fuchsia-500/10 file:text-fuchsia-400 hover:file:bg-fuchsia-500/20 cursor-pointer"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-lg font-semibold text-zinc-300">Product Categories</h3>
                 <button

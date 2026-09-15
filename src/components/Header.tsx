@@ -2,7 +2,7 @@ import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut, W
 import { useState } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
-import { useBalance } from '../store';
+import { useBalance, useInventory } from '../store';
 import { AddBalanceModal } from './AddBalanceModal';
 
 interface HeaderProps {
@@ -16,6 +16,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
   const [isAddBalanceOpen, setIsAddBalanceOpen] = useState(false);
   const { currentUser } = useAuth();
   const { balance } = useBalance(currentUser?.uid);
+  const { settings } = useInventory();
 
   return (
     <>
@@ -24,15 +25,15 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
         <div className="flex justify-between items-center h-16">
           <div className="flex items-center space-x-3 cursor-pointer" onClick={() => onNavigate?.('home')}>
             <img 
-              src="/logo.png" 
-              alt="ARMAN X STORE Logo" 
-              className="w-10 h-10 rounded-md shadow-[0_0_10px_rgba(224,0,255,0.4)] border border-fuchsia-500/30"
+              src={settings.siteLogoUrl || "/logo.png"} 
+              alt={`${settings.siteName} Logo`}
+              className="w-10 h-10 rounded-md shadow-[0_0_10px_rgba(224,0,255,0.4)] border border-fuchsia-500/30 object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).style.display = 'none';
               }}
             />
             <span className="font-display font-bold text-xl tracking-tight text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
-              ARMAN X STORE<span className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(224,0,255,0.8)]">.</span>
+              {settings.siteName || "ARMAN X STORE"}<span className="text-fuchsia-500 drop-shadow-[0_0_8px_rgba(224,0,255,0.8)]">.</span>
             </span>
           </div>
           

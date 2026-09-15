@@ -412,7 +412,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       if (data.order_id) {
         setOrderId(data.order_id);
         
-        const redirectUrl = data.checkout_url || data.payment_url || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(selectedProduct || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`;
+        const redirectUrl = data.checkout_url || data.payment_url || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`;
         setPaymentUrl(redirectUrl);
 
         if (data.qr_url) {
@@ -655,7 +655,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                 </div>
                 
                 <a 
-                  href={paymentUrl || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(selectedProduct || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
+                  href={paymentUrl || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
                   target={paymentUrl?.startsWith('http') ? '_blank' : '_self'}
                   rel="noopener noreferrer"
                   className="mt-6 px-6 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 font-medium rounded-xl transition-all border border-white/10 flex items-center gap-2"
@@ -721,13 +721,13 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                       
                       {generatedKeys.length < quantity && (
                         <div className="mt-4 p-3 bg-amber-950/40 border border-amber-500/30 rounded-lg text-amber-300 text-xs">
-                          <strong>Note:</strong> You requested {quantity} keys but only {generatedKeys.length} were in stock. The remaining amount has been <strong>refunded to your ARMAN X STORE Wallet</strong>.
+                          <strong>Note:</strong> You requested {quantity} keys but only {generatedKeys.length} were in stock. The remaining amount has been <strong>refunded to your {settings.siteName || 'ARMAN X STORE'} Wallet</strong>.
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="bg-amber-950/30 border border-amber-500/20 p-4 rounded-xl text-left mt-4 text-amber-400 text-sm shadow-[0_0_10px_rgba(251,191,36,0.1)]">
-                      <strong className="text-amber-300">Keys out of stock.</strong> Your payment was successful, but there weren't enough license keys available. The paid amount has been <strong>automatically refunded to your ARMAN X STORE Wallet balance</strong>.
+                      <strong className="text-amber-300">Keys out of stock.</strong> Your payment was successful, but there weren't enough license keys available. The paid amount has been <strong>automatically refunded to your {settings.siteName || 'ARMAN X STORE'} Wallet balance</strong>.
                     </div>
                   )}
                 </div>

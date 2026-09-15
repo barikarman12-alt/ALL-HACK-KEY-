@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react';
+import { db, auth } from './lib/firebase';
+import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 export interface ProductKey {
   category: string;
@@ -41,6 +44,8 @@ export interface PurchaseRecord {
 }
 
 export interface ProductSettings {
+  siteName: string;
+  siteLogoUrl: string;
   nonRootName: string;
   nonRootLogoUrl: string;
   rootName: string;
@@ -49,6 +54,8 @@ export interface ProductSettings {
 }
 
 const defaultSettings: ProductSettings = {
+  siteName: 'ARMAN X STORE',
+  siteLogoUrl: '/logo.png',
   nonRootName: 'ARMAN X STORE NON-ROOT',
   nonRootLogoUrl: 'https://images.unsplash.com/photo-1614064641936-732732f1a63c?auto=format&fit=crop&q=80&w=200',
   rootName: 'ARMAN X STORE ROOT',
@@ -76,10 +83,97 @@ let purchases: PurchaseRecord[] = [];
 let balances: Record<string, number> = {};
 
 const listeners = new Set<() => void>();
+let initialized = false;
 
-// Load from localStorage
-const loadFromStorage = () => {
+// Sync functions
+const syncToStorage = async () => {
   try {
+    localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances }));
+    // Only attempt to sync if user is logged in
+    if (auth.currentUser) {
+      await setDoc(doc(db, 'appData', 'global'), { inventory, settings, balances }, { merge: true });
+    }
+  } catch (e: any) {
+    console.warn('Failed to sync to Firestore (this is expected if not logged in as admin):', e.message);
+  }
+};
+
+const syncPurchasesToStorage = async () => {
+  try {
+    localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
+    if (auth.currentUser) {
+      await setDoc(doc(db, 'appData', 'purchases'), { purchases }, { merge: true });
+    }
+  } catch (e: any) {
+    console.warn('Failed to sync purchases to Firestore (this is expected if not logged in as admin):', e.message);
+  }
+};
+
+// Initialization and Realtime Listeners
+const initializeData = async () => {
+  if (initialized) return;
+  initialized = true;
+
+  try {
+    const globalDoc = await getDoc(doc(db, 'appData', 'global'));
+    const purchasesDoc = await getDoc(doc(db, 'appData', 'purchases'));
+
+    if (globalDoc.exists()) {
+      const data = globalDoc.data();
+      if (data.inventory) inventory = data.inventory;
+      if (data.settings) settings = data.settings;
+      if (data.balances) balances = data.balances;
+    } else {
+      // First time? Load from localStorage if any, then sync up to Firestore
+      const savedGlobal = localStorage.getItem('appDataGlobal');
+      if (savedGlobal) {
+        const data = JSON.parse(savedGlobal);
+        if (data.inventory) inventory = data.inventory;
+        if (data.settings) settings = data.settings;
+        if (data.balances) balances = data.balances;
+      }
+      if (auth.currentUser) {
+        await syncToStorage();
+      }
+    }
+
+    if (purchasesDoc.exists()) {
+      const data = purchasesDoc.data();
+      if (data.purchases) purchases = data.purchases;
+    } else {
+      const savedPurchases = localStorage.getItem('appDataPurchases');
+      if (savedPurchases) {
+        purchases = JSON.parse(savedPurchases);
+      }
+      if (auth.currentUser) {
+        await syncPurchasesToStorage();
+      }
+    }
+    
+    store.notify();
+
+    // Listen to real-time changes
+    onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.inventory) inventory = data.inventory;
+        if (data.settings) settings = data.settings;
+        if (data.balances) balances = data.balances;
+        store.notify();
+      }
+    });
+
+    onSnapshot(doc(db, 'appData', 'purchases'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.purchases) purchases = data.purchases;
+        store.notify();
+      }
+    });
+
+  } catch (e) {
+    console.warn("Could not load from Firestore (expected if unauthenticated). Falling back to local storage:", e);
+    // Fallback logic
     const savedGlobal = localStorage.getItem('appDataGlobal');
     if (savedGlobal) {
       const data = JSON.parse(savedGlobal);
@@ -92,20 +186,16 @@ const loadFromStorage = () => {
     if (savedPurchases) {
       purchases = JSON.parse(savedPurchases);
     }
-  } catch (e) {
-    console.error("Failed to parse local storage", e);
+    store.notify();
   }
 };
 
-loadFromStorage();
-
-const syncToStorage = () => {
-  localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances }));
-};
-
-const syncPurchasesToStorage = () => {
-  localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
-};
+// Delay initialization until Auth state is known to avoid initial permission errors
+onAuthStateChanged(auth, (user) => {
+  if (!initialized) {
+    initializeData();
+  }
+});
 
 export const store = {
   getInventory: () => inventory,
@@ -153,11 +243,12 @@ export const store = {
   purchaseKeys: async (value: string, count: number, userId?: string, userEmail?: string): Promise<string[]> => {
     let purchased: string[] = [];
     let record: PurchaseRecord | null = null;
+
     inventory = inventory.map(item => {
       if (item.value === value) {
         const remainingKeys = [...item.keys];
         purchased = remainingKeys.splice(0, count);
-
+        
         if (purchased.length > 0) {
           record = {
             id: Math.random().toString(36).substring(2, 11),

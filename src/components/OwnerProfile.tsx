@@ -1,6 +1,9 @@
 import { Github, Twitter, Linkedin, Mail } from 'lucide-react';
+import { useInventory } from '../store';
 
 export function OwnerProfile() {
+  const { settings } = useInventory();
+  
   return (
     <section className="py-24 bg-zinc-950 border-t border-fuchsia-500/20">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -30,10 +33,10 @@ export function OwnerProfile() {
                 Product Owner
               </div>
               <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-2 drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">Arman Barik</h2>
-              <p className="text-fuchsia-400 text-lg mb-6 font-medium drop-shadow-[0_0_5px_rgba(224,0,255,0.4)]">Founder & Lead Developer @ ARMAN X STORE</p>
+              <p className="text-fuchsia-400 text-lg mb-6 font-medium drop-shadow-[0_0_5px_rgba(224,0,255,0.4)]">Founder & Lead Developer @ {settings.siteName || "ARMAN X STORE"}</p>
               
               <p className="text-zinc-300 mb-8 leading-relaxed max-w-2xl">
-                Hi! I'm the creator behind ARMAN X STORE. I specialize in building high-performance 
+                Hi! I'm the creator behind {settings.siteName || "ARMAN X STORE"}. I specialize in building high-performance 
                 digital tools that help modern creators streamline their workflow. My goal is to craft 
                 software that isn't just functional, but genuinely a joy to use.
               </p>
@@ -48,7 +51,7 @@ export function OwnerProfile() {
                 <a href="#" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
                   <Linkedin className="w-5 h-5" />
                 </a>
-                <a href="mailto:barikarman207@gmail.com" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
+                <a href="mailto:barikarman12@gmail.com" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
                   <Mail className="w-5 h-5" />
                 </a>
               </div>
