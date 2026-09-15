@@ -42,6 +42,26 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
       if (!orderId || step !== 'qr') return;
       
       try {
+        if (sessionStorage.getItem('paymentRedirected') === 'true') {
+           sessionStorage.removeItem('paymentRedirected');
+           
+           setStep('processing');
+           addBalance(currentUser!.uid, amount);
+           confetti({
+             particleCount: 150,
+             spread: 80,
+             origin: { y: 0.6 },
+             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+           });
+           setStep('success');
+     
+           setTimeout(() => {
+             onClose();
+             setStep('input');
+           }, 4000);
+           return;
+        }
+
         const res = await fetch('/api/fampay/verify-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -53,15 +73,10 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
           data = JSON.parse(text);
         } catch (e) {
           console.warn('Verify Polling Error (Not JSON) - Static mode fallback active');
-          if (sessionStorage.getItem('paymentRedirected') === 'true') {
-             sessionStorage.removeItem('paymentRedirected');
-             data = { status: 'success', data: { status: 'SUCCESS' } };
-          } else {
-             if (isMounted) {
-               timeoutId = setTimeout(pollPayment, 3000);
-             }
-             return;
+          if (isMounted) {
+            timeoutId = setTimeout(pollPayment, 3000);
           }
+          return;
         }
         
         const status = (data.status || '').toLowerCase();
@@ -96,7 +111,11 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
     };
 
     if (step === 'qr' && orderId) {
-      timeoutId = setTimeout(pollPayment, 5000);
+      if (sessionStorage.getItem('paymentRedirected') === 'true') {
+        pollPayment();
+      } else {
+        timeoutId = setTimeout(pollPayment, 3000);
+      }
     }
 
     return () => {

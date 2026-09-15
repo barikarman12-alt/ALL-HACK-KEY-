@@ -235,6 +235,31 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       if (!orderId || paymentStep !== 'qr' || isVerifying) return;
       
       try {
+        // If the user was redirected to /success, assume they paid
+        if (sessionStorage.getItem('paymentRedirected') === 'true') {
+           sessionStorage.removeItem('paymentRedirected');
+           
+           setIsVerifying(true);
+           setPaymentStep('processing');
+           
+           const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
+           if (keys.length < quantity && currentUser?.uid) {
+             const missingCount = quantity - keys.length;
+             addBalance(currentUser.uid, missingCount * selectedDuration.price);
+           }
+           playSuccessSound();
+           confetti({
+             particleCount: 150,
+             spread: 80,
+             origin: { y: 0.6 },
+             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+           });
+           setPaymentStep('success');
+           setGeneratedKeys(keys);
+           sessionStorage.removeItem('pendingPayment');
+           return;
+        }
+
         const res = await fetch('/api/fampay/verify-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -247,17 +272,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           data = JSON.parse(text);
         } catch (e) {
           console.warn('Verify Polling Error (Not JSON) - Static mode fallback active');
-          // If the user was redirected to /success, assume they paid
-          if (sessionStorage.getItem('paymentRedirected') === 'true') {
-             sessionStorage.removeItem('paymentRedirected');
-             data = { status: 'success', data: { status: 'SUCCESS' } };
-          } else {
-             // Keep waiting
-             if (isMounted) {
-               timeoutId = setTimeout(pollPayment, 3000);
-             }
-             return;
+          if (isMounted) {
+            timeoutId = setTimeout(pollPayment, 3000);
           }
+          return;
         }
         
         // Wait for status 'success' or 'PAID' from the webhook/verify endpoint
@@ -298,7 +316,12 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     };
 
     if (paymentStep === 'qr' && orderId) {
-      timeoutId = setTimeout(pollPayment, 5000);
+      if (sessionStorage.getItem('paymentRedirected') === 'true') {
+         // Fire immediately if redirected back from success
+         pollPayment();
+      } else {
+         timeoutId = setTimeout(pollPayment, 3000); // reduced to 3s to be snappier
+      }
     }
 
     return () => {
