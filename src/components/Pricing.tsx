@@ -232,32 +232,14 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     }
 
     const pollPayment = async () => {
-      if (!orderId || paymentStep !== 'qr' || isVerifying) return;
+      if (!orderId || (paymentStep !== 'qr' && paymentStep !== 'processing') || isVerifying) return;
       
       try {
-        // If the user was redirected to /success, assume they paid
+        // If the user was redirected to /success, do NOT assume they paid.
+        // We must verify with the server to prevent fraudulent key generation.
         if (sessionStorage.getItem('paymentRedirected') === 'true') {
            sessionStorage.removeItem('paymentRedirected');
-           
-           setIsVerifying(true);
-           setPaymentStep('processing');
-           
-           const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
-           if (keys.length < quantity && currentUser?.uid) {
-             const missingCount = quantity - keys.length;
-             addBalance(currentUser.uid, missingCount * selectedDuration.price);
-           }
-           playSuccessSound();
-           confetti({
-             particleCount: 150,
-             spread: 80,
-             origin: { y: 0.6 },
-             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-           });
-           setPaymentStep('success');
-           setGeneratedKeys(keys);
-           sessionStorage.removeItem('pendingPayment');
-           return;
+           setPaymentStep('processing'); // Show loading state while verifying
         }
 
         const res = await fetch('/api/fampay/verify-order', {
@@ -315,7 +297,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       }
     };
 
-    if (paymentStep === 'qr' && orderId) {
+    if ((paymentStep === 'qr' || paymentStep === 'processing') && orderId) {
       if (sessionStorage.getItem('paymentRedirected') === 'true') {
          // Fire immediately if redirected back from success
          pollPayment();

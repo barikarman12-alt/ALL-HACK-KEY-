@@ -1,4 +1,4 @@
-import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut, Wallet, Plus } from 'lucide-react';
+import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut, Wallet, Plus, Key } from 'lucide-react';
 import { useState } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
@@ -72,11 +72,12 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                   </button>
                 </div>
                 <button 
-                  className="text-zinc-300 hover:text-fuchsia-400 transition-colors"
+                  className="flex items-center space-x-1.5 text-zinc-300 hover:text-white bg-zinc-900/80 border border-zinc-800 px-3 py-1.5 rounded-full hover:border-fuchsia-500/30 transition-all"
                   onClick={onShowPurchases}
                   title="My Purchases"
                 >
-                  <History className="w-5 h-5" />
+                  <Key className="w-4 h-4 text-fuchsia-400" />
+                  <span className="text-sm font-medium">My Keys</span>
                 </button>
                 <div className="flex items-center space-x-2">
                   {currentUser.photoURL ? (
@@ -118,10 +119,11 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                   </button>
                 </div>
                 <button 
-                  className="text-zinc-300 hover:text-fuchsia-400 transition-colors"
+                  className="flex items-center space-x-1.5 text-zinc-300 hover:text-white bg-zinc-900/80 border border-zinc-800 px-2.5 py-1 rounded-full hover:border-fuchsia-500/30 transition-all"
                   onClick={onShowPurchases}
                 >
-                  <History className="w-5 h-5" />
+                  <Key className="w-3.5 h-3.5 text-fuchsia-400" />
+                  <span className="text-xs font-medium">My Keys</span>
                 </button>
               </>
             ) : (

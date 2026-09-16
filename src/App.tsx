@@ -25,6 +25,7 @@ export default function App() {
       if (path === '/success') {
          sessionStorage.setItem('paymentRedirected', 'true');
          window.history.replaceState({}, document.title, '/');
+         window.history.pushState({ paymentSuccess: true }, document.title, '/');
       }
     }
   }, []);

@@ -99,9 +99,8 @@ async function startServer() {
         data = JSON.parse(text);
       } catch (e) {
         console.error('Verify order invalid JSON:', text.substring(0, 100));
-        // Fallback to fake success if the gateway is completely down to let the user proceed 
-        // OR we can return pending. Let's return a simulated response.
-        return res.json({ status: 'success', data: { status: 'SUCCESS', order_id } });
+        // Return a pending state if the gateway fails, NEVER assume success unless explicitly confirmed
+        return res.json({ status: 'pending', message: 'Awaiting confirmation from gateway' });
       }
       
       return res.status(response.status).json(data);
