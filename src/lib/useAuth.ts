@@ -76,15 +76,15 @@ export const loginWithGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
     sessionStorage.setItem('isGoogleLoginPending', 'true');
-    await signInWithRedirect(auth, provider);
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
     
-    // The code below won't execute because the page redirects immediately,
-    // but we return a dummy response to satisfy TypeScript.
+    sessionStorage.removeItem('isGoogleLoginPending');
     return {
-      uid: '',
-      email: '',
-      displayName: '',
-      customId: ''
+      uid: user.uid,
+      email: user.email,
+      displayName: user.displayName,
+      customId: user.email?.split('@')[0] || ''
     };
   } catch (error: any) {
     sessionStorage.removeItem('isGoogleLoginPending');
