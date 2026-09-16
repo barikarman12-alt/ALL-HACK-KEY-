@@ -76,11 +76,9 @@ export const logOutMock = async () => {
 export const loginWithGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    sessionStorage.setItem('isGoogleLoginPending', 'true');
     const userCredential = await signInWithPopup(auth, provider);
     const user = userCredential.user;
     
-    sessionStorage.removeItem('isGoogleLoginPending');
     return {
       uid: user.uid,
       email: user.email,
@@ -88,7 +86,6 @@ export const loginWithGoogle = async () => {
       customId: user.email?.split('@')[0] || ''
     };
   } catch (error: any) {
-    sessionStorage.removeItem('isGoogleLoginPending');
     throw { code: error.code, message: error.message || 'Google Sign-In failed.' };
   }
 };

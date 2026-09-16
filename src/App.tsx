@@ -10,9 +10,7 @@ import { Login } from './components/Login';
 import { useAuth } from './lib/useAuth';
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login'>(
-    sessionStorage.getItem('isGoogleLoginPending') === 'true' ? 'login' : 'home'
-  );
+  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login'>('home');
   const [showPurchases, setShowPurchases] = useState(false);
   const { currentUser, loading } = useAuth();
   
@@ -55,14 +53,7 @@ export default function App() {
         </main>
       ) : currentPage === 'login' ? (
         <main>
-          {loading && sessionStorage.getItem('isGoogleLoginPending') === 'true' ? (
-            <div className="min-h-[80vh] flex flex-col items-center justify-center">
-              <div className="w-12 h-12 border-4 border-fuchsia-500/30 border-t-fuchsia-500 rounded-full animate-spin mb-4"></div>
-              <p className="text-zinc-400 font-medium animate-pulse">Completing Google Sign-in...</p>
-            </div>
-          ) : (
-            <Login onBack={() => setCurrentPage('home')} />
-          )}
+          <Login onBack={() => setCurrentPage('home')} />
         </main>
       ) : (
         <main>

@@ -36,7 +36,11 @@ export function Login({ onBack }: LoginProps) {
       setSuccess('Success! Welcome back.');
       setTimeout(() => onBack(), 1000);
     } catch (err: any) {
-      setError(err.message || 'Invalid credentials.');
+      if (err?.code === 'auth/invalid-credential') {
+        setError('Invalid email or password. If you don\'t have an account, please Sign Up first.');
+      } else {
+        setError(err.message || 'Invalid credentials.');
+      }
     } finally {
       setIsLoading(false);
     }

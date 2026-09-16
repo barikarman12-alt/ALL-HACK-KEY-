@@ -1,4 +1,4 @@
-import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet } from 'lucide-react';
+import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet, Search } from 'lucide-react';
 import { useState, useEffect, SVGProps } from 'react';
 import confetti from 'canvas-confetti';
 import { FastAverageColor } from 'fast-average-color';
@@ -133,6 +133,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
   const [utrNumber, setUtrNumber] = useState('');
   const [paymentError, setPaymentError] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [orderId, setOrderId] = useState('');
   const [paymentUrl, setPaymentUrl] = useState('');
@@ -432,24 +433,51 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
   const totalPrice = selectedDuration.price * quantity;
 
+  const filteredCategories = settings.categories.filter((category) => 
+    category.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <section id="pricing" className="py-12 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 max-w-5xl mx-auto">
-          {settings.categories.map((category, index) => {
-            const fallbackColors = ['#d946ef', '#06b6d4', '#10b981', '#f59e0b'];
-            const fallbackColor = fallbackColors[index % fallbackColors.length];
-            return (
-              <ProductCard 
-                key={category.id} 
-                category={category} 
-                pricingOptions={pricingOptions} 
-                openPurchaseModal={openPurchaseModal} 
-                fallbackColor={fallbackColor} 
-              />
-            );
-          })}
+        <div className="max-w-5xl mx-auto mb-8 relative">
+          <div className="relative group">
+            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-zinc-500 group-focus-within:text-fuchsia-400 transition-colors" />
+            </div>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search for products, subscriptions, or services..."
+              className="block w-full pl-11 pr-4 py-4 bg-zinc-900/50 border-2 border-zinc-800 rounded-2xl leading-5 bg-transparent text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-fuchsia-500/50 focus:ring-1 focus:ring-fuchsia-500/50 transition-all duration-300 shadow-[0_0_15px_rgba(0,0,0,0.5)] focus:shadow-[0_0_20px_rgba(224,0,255,0.15)] sm:text-lg"
+            />
+          </div>
         </div>
+
+        {filteredCategories.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 max-w-5xl mx-auto">
+            {filteredCategories.map((category, index) => {
+              const fallbackColors = ['#d946ef', '#06b6d4', '#10b981', '#f59e0b'];
+              const fallbackColor = fallbackColors[index % fallbackColors.length];
+              return (
+                <ProductCard 
+                  key={category.id} 
+                  category={category} 
+                  pricingOptions={pricingOptions} 
+                  openPurchaseModal={openPurchaseModal} 
+                  fallbackColor={fallbackColor} 
+                />
+              );
+            })}
+          </div>
+        ) : (
+          <div className="max-w-5xl mx-auto text-center py-12 bg-zinc-900/30 rounded-3xl border border-zinc-800/50">
+            <Search className="h-12 w-12 text-zinc-600 mx-auto mb-4" />
+            <h3 className="text-xl font-medium text-zinc-300 mb-2">No products found</h3>
+            <p className="text-zinc-500">We couldn't find anything matching "{searchQuery}". Try a different term.</p>
+          </div>
+        )}
       </div>
 
       {/* Purchase Modal */}
