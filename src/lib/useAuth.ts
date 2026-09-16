@@ -74,23 +74,6 @@ export const logOutMock = async () => {
   }
 };
 
-export const loginWithGoogle = async () => {
-  try {
-    const provider = new GoogleAuthProvider();
-    const userCredential = await signInWithPopup(auth, provider);
-    const user = userCredential.user;
-    
-    return {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      customId: user.email?.split('@')[0] || ''
-    };
-  } catch (error: any) {
-    throw { code: error.code, message: error.message || 'Google Sign-In failed.' };
-  }
-};
-
 export const loginWithIdMock = async (id: string, password: string) => {
   const email = id.includes('@') ? id : `${id}@armanxstore.com`.toLowerCase();
   
