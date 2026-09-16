@@ -16,6 +16,10 @@ export function Login({ onBack }: LoginProps) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otpStep, setOtpStep] = useState<1 | 2>(1);
+  const [enteredOtp, setEnteredOtp] = useState('');
+  const [generatedOtp, setGeneratedOtp] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   // Switch views and clear messages
   const switchView = (newView: 'login' | 'register' | 'forgot' | 'reset') => {
@@ -23,6 +27,10 @@ export function Login({ onBack }: LoginProps) {
     setError('');
     setSuccess('');
     setPassword('');
+    setOtpStep(1);
+    setEnteredOtp('');
+    setGeneratedOtp('');
+    setNewPassword('');
   };
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -68,13 +76,15 @@ export function Login({ onBack }: LoginProps) {
     setError('');
     setSuccess('');
     setIsLoading(true);
-    
+
     try {
       await resetPassword(email);
       setSuccess('Password reset link sent to your email.');
       setEmail('');
     } catch (err: any) {
-      setError(err.message || 'Failed to send reset link.');
+      const errorMessage = `Error: ${err.code} - ${err.message}`;
+      setError(errorMessage);
+      alert(errorMessage);
     } finally {
       setIsLoading(false);
     }
