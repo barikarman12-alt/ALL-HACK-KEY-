@@ -7,7 +7,8 @@ import {
   signOut,
   onAuthStateChanged,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   User as FirebaseUser
 } from 'firebase/auth';
 
@@ -23,6 +24,16 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Check for redirect result when the component mounts
+    const checkRedirectResult = async () => {
+      try {
+        await getRedirectResult(auth);
+      } catch (error) {
+        console.error("Google Sign-in redirect error:", error);
+      }
+    };
+    checkRedirectResult();
+
     const unsubscribe = onAuthStateChanged(auth, (user: FirebaseUser | null) => {
       if (user) {
         setCurrentUser({
@@ -54,13 +65,18 @@ export const logOutMock = async () => {
 export const loginWithGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    const userCredential = await signInWithPopup(auth, provider);
-    const user = userCredential.user;
+    // Using redirect instead of popup to bypass cross-origin / authorized domain issues
+    // on Cloud Run deployments where the exact sub-domain cannot be predicted or changes.
+    await signInWithRedirect(auth, provider);
+    
+    // The code below won't execute because the page redirects immediately,
+    // but we return a dummy response to satisfy TypeScript. The actual login 
+    // is caught by getRedirectResult in useAuth() when the page reloads.
     return {
-      uid: user.uid,
-      email: user.email,
-      displayName: user.displayName,
-      customId: user.email?.split('@')[0] || ''
+      uid: '',
+      email: '',
+      displayName: '',
+      customId: ''
     };
   } catch (error: any) {
     throw { code: error.code, message: error.message || 'Google Sign-In failed.' };
