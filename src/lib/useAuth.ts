@@ -10,6 +10,7 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  sendPasswordResetEmail,
   User as FirebaseUser
 } from 'firebase/auth';
 
@@ -126,5 +127,13 @@ export const registerWithIdMock = async (id: string, password: string, name?: st
     };
   } catch (error: any) {
     throw { code: error.code, message: error.message || 'Registration failed.' };
+  }
+};
+
+export const resetPassword = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+  } catch (error: any) {
+    throw { code: error.code, message: error.message || 'Failed to send password reset email.' };
   }
 };

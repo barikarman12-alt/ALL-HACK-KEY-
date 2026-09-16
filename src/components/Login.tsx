@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Shield, Zap, User, KeyRound, ArrowLeft, ArrowRight, Hash, Mail } from 'lucide-react';
-import { registerWithIdMock, loginWithIdMock, loginWithGoogle } from '../lib/useAuth';
+import { registerWithIdMock, loginWithIdMock, loginWithGoogle, resetPassword } from '../lib/useAuth';
 
 interface LoginProps {
   onBack: () => void;
@@ -90,12 +90,16 @@ export function Login({ onBack }: LoginProps) {
     setError('');
     setSuccess('');
     setIsLoading(true);
-    // Simulate sending email
-    setTimeout(() => {
+    
+    try {
+      await resetPassword(email);
       setSuccess('Password reset link sent to your email.');
       setEmail('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to send reset link.');
+    } finally {
       setIsLoading(false);
-    }, 1500);
+    }
   };
 
   const handleReset = async (e: React.FormEvent) => {
