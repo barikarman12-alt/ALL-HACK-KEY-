@@ -48,10 +48,17 @@ export function Login({ onBack }: LoginProps) {
     setIsLoading(true);
     try {
       await loginWithGoogle();
+      // On successful popup login it reaches here.
+      // With redirect login, the page will navigate away before this runs.
       setSuccess('Success! Welcome back.');
       setTimeout(() => onBack(), 1000);
     } catch (err: any) {
-      setError(err.message || 'Google Sign-In failed.');
+      if (err?.code === 'auth/unauthorized-domain') {
+        const domain = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        setError(`Domain not authorized. Go to Firebase Console > Authentication > Settings > Authorized Domains. Click 'Add domain' and paste exactly: ${domain} (NO https:// or trailing slashes)`);
+      } else {
+        setError(err.message || 'Google Sign-In failed.');
+      }
     } finally {
       setIsLoading(false);
     }
