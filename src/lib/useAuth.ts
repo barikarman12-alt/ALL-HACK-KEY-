@@ -24,12 +24,18 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let mounted = true;
+    
     // Check for redirect result when the component mounts
     const checkRedirectResult = async () => {
       try {
-        await getRedirectResult(auth);
+        const result = await getRedirectResult(auth);
+        if (result && mounted) {
+           sessionStorage.removeItem('isGoogleLoginPending');
+        }
       } catch (error) {
         console.error("Google Sign-in redirect error:", error);
+        sessionStorage.removeItem('isGoogleLoginPending');
       }
     };
     checkRedirectResult();
@@ -42,13 +48,17 @@ export function useAuth() {
           displayName: user.displayName,
           customId: user.email?.split('@')[0]
         });
+        sessionStorage.removeItem('isGoogleLoginPending');
       } else {
         setCurrentUser(null);
       }
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
   }, []);
 
   return { currentUser, loading };
@@ -65,13 +75,11 @@ export const logOutMock = async () => {
 export const loginWithGoogle = async () => {
   try {
     const provider = new GoogleAuthProvider();
-    // Using redirect instead of popup to bypass cross-origin / authorized domain issues
-    // on Cloud Run deployments where the exact sub-domain cannot be predicted or changes.
+    sessionStorage.setItem('isGoogleLoginPending', 'true');
     await signInWithRedirect(auth, provider);
     
     // The code below won't execute because the page redirects immediately,
-    // but we return a dummy response to satisfy TypeScript. The actual login 
-    // is caught by getRedirectResult in useAuth() when the page reloads.
+    // but we return a dummy response to satisfy TypeScript.
     return {
       uid: '',
       email: '',
@@ -79,6 +87,7 @@ export const loginWithGoogle = async () => {
       customId: ''
     };
   } catch (error: any) {
+    sessionStorage.removeItem('isGoogleLoginPending');
     throw { code: error.code, message: error.message || 'Google Sign-In failed.' };
   }
 };

@@ -10,9 +10,11 @@ import { Login } from './components/Login';
 import { useAuth } from './lib/useAuth';
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login'>(
+    sessionStorage.getItem('isGoogleLoginPending') === 'true' ? 'login' : 'home'
+  );
   const [showPurchases, setShowPurchases] = useState(false);
-  const { currentUser } = useAuth();
+  const { currentUser, loading } = useAuth();
   
   useEffect(() => {
     // If user lands on /success or has a pending payment, make sure they are on the home page 
@@ -32,6 +34,12 @@ export default function App() {
   
   const isOwner = currentUser?.email?.includes('barikarman') || ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || currentUser?.customId?.includes('barikarman');
 
+  useEffect(() => {
+    if (currentUser && currentPage === 'login') {
+      setCurrentPage(isOwner ? 'dashboard' : 'home');
+    }
+  }, [currentUser, currentPage, isOwner]);
+
   return (
     <div className="min-h-screen bg-zinc-950 font-sans selection:bg-fuchsia-500 selection:text-white text-zinc-100">
       <Header 
@@ -47,7 +55,14 @@ export default function App() {
         </main>
       ) : currentPage === 'login' ? (
         <main>
-          <Login onBack={() => setCurrentPage('home')} />
+          {loading && sessionStorage.getItem('isGoogleLoginPending') === 'true' ? (
+            <div className="min-h-[80vh] flex flex-col items-center justify-center">
+              <div className="w-12 h-12 border-4 border-fuchsia-500/30 border-t-fuchsia-500 rounded-full animate-spin mb-4"></div>
+              <p className="text-zinc-400 font-medium animate-pulse">Completing Google Sign-in...</p>
+            </div>
+          ) : (
+            <Login onBack={() => setCurrentPage('home')} />
+          )}
         </main>
       ) : (
         <main>
