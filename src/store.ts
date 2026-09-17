@@ -12,18 +12,7 @@ export interface ProductKey {
   keys: string[];
 }
 
-const defaultInventory: ProductKey[] = [
-  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 1', value: 'nonroot_day1', price: 100, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 3', value: 'nonroot_day3', price: 200, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 7', value: 'nonroot_day7', price: 330, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 15', value: 'nonroot_day15', price: 630, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE NON-ROOT', label: 'Day 30', value: 'nonroot_day30', price: 830, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE ROOT', label: 'Day 1', value: 'root_day1', price: 100, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE ROOT', label: 'Day 3', value: 'root_day3', price: 200, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE ROOT', label: 'Day 7', value: 'root_day7', price: 330, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE ROOT', label: 'Day 15', value: 'root_day15', price: 630, stock: 0, keys: [] },
-  { category: 'ARMAN X STORE ROOT', label: 'Day 30', value: 'root_day30', price: 830, stock: 0, keys: [] }
-];
+const defaultInventory: ProductKey[] = [];
 
 export interface ProductCategory {
   id: string;
@@ -56,25 +45,11 @@ export interface ProductSettings {
 const defaultSettings: ProductSettings = {
   siteName: 'ARMAN X STORE',
   siteLogoUrl: '/logo.png',
-  nonRootName: 'ARMAN X STORE NON-ROOT',
-  nonRootLogoUrl: 'https://images.unsplash.com/photo-1614064641936-732732f1a63c?auto=format&fit=crop&q=80&w=200',
-  rootName: 'ARMAN X STORE ROOT',
-  rootLogoUrl: '/logo.png',
-  categories: [
-    {
-      id: 'ARMAN X STORE NON-ROOT',
-      name: 'ARMAN X STORE NON-ROOT',
-      logoUrl: 'https://images.unsplash.com/photo-1614064641936-732732f1a63c?auto=format&fit=crop&q=80&w=200',
-      theme: 'light'
-    },
-    {
-      id: 'ARMAN X STORE ROOT',
-      name: 'ARMAN X STORE ROOT',
-      logoUrl: '/logo.png',
-      theme: 'dark',
-      popular: true
-    }
-  ]
+  nonRootName: '',
+  nonRootLogoUrl: '',
+  rootName: '',
+  rootLogoUrl: '',
+  categories: []
 };
 
 let inventory: ProductKey[] = defaultInventory;
@@ -120,16 +95,26 @@ const initializeData = async () => {
 
     if (globalDoc.exists()) {
       const data = globalDoc.data();
-      if (data.inventory) inventory = data.inventory;
-      if (data.settings) settings = data.settings;
+      if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
+      if (data.settings) {
+        settings = data.settings;
+        if (settings.categories) {
+          settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+        }
+      }
       if (data.balances) balances = data.balances;
     } else {
       // First time? Load from localStorage if any, then sync up to Firestore
       const savedGlobal = localStorage.getItem('appDataGlobal');
       if (savedGlobal) {
         const data = JSON.parse(savedGlobal);
-        if (data.inventory) inventory = data.inventory;
-        if (data.settings) settings = data.settings;
+        if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
+        if (data.settings) {
+          settings = data.settings;
+          if (settings.categories) {
+            settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+          }
+        }
         if (data.balances) balances = data.balances;
       }
       if (auth.currentUser) {
@@ -156,8 +141,13 @@ const initializeData = async () => {
     onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
-        if (data.inventory) inventory = data.inventory;
-        if (data.settings) settings = data.settings;
+        if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
+        if (data.settings) {
+          settings = data.settings;
+          if (settings.categories) {
+            settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+          }
+        }
         if (data.balances) balances = data.balances;
         store.notify();
       }

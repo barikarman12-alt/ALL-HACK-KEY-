@@ -101,21 +101,21 @@ const ProductCard = ({ category, pricingOptions, openPurchaseModal, fallbackColo
       <div className="p-4 sm:p-10 flex-grow flex flex-col justify-end">
         <button 
           onClick={() => openPurchaseModal(category.id)}
-          className="w-full inline-flex items-center justify-center px-2 py-2.5 sm:px-8 sm:py-4 text-xs sm:text-lg font-medium rounded-lg sm:rounded-xl transition-all hover:-translate-y-1 text-white"
+          className="w-full inline-flex items-center justify-center px-2 py-2.5 sm:px-8 sm:py-4 text-xs sm:text-lg font-bold rounded-lg sm:rounded-xl transition-all hover:-translate-y-1 text-white border border-white/20"
           style={{ 
             backgroundColor: accentColor, 
-            boxShadow: `0 0 20px ${accentColor}66`
+            boxShadow: `0 0 15px ${accentColor}99, inset 0 2px 5px rgba(255,255,255,0.2)`
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.boxShadow = `0 0 25px ${accentColor}99`;
+            e.currentTarget.style.boxShadow = `0 0 25px ${accentColor}ff, inset 0 2px 8px rgba(255,255,255,0.4)`;
             e.currentTarget.style.transform = 'translateY(-4px)';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.boxShadow = `0 0 20px ${accentColor}66`;
+            e.currentTarget.style.boxShadow = `0 0 15px ${accentColor}99, inset 0 2px 5px rgba(255,255,255,0.2)`;
             e.currentTarget.style.transform = 'none';
           }}
         >
-          Buy {category.name}
+          Buy
         </button>
       </div>
     </div>
@@ -127,7 +127,13 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const { items: pricingOptions, purchaseKeys, settings } = useInventory(currentUser?.uid);
   const { balance, deductBalance, addBalance } = useBalance(currentUser?.uid);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
-  const [selectedDuration, setSelectedDuration] = useState(pricingOptions[0]);
+  const [selectedDuration, setSelectedDuration] = useState<any>(pricingOptions[0] || null);
+
+  useEffect(() => {
+    if (pricingOptions.length > 0 && !selectedDuration) {
+      setSelectedDuration(pricingOptions[0]);
+    }
+  }, [pricingOptions, selectedDuration]);
   const [quantity, setQuantity] = useState(1);
   const [paymentStep, setPaymentStep] = useState<'configure' | 'qr' | 'processing' | 'success' | 'wallet_confirm'>('configure');
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
@@ -171,7 +177,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
   const handleProceedWithWallet = async () => {
     if (!currentUser) return;
-    const totalPrice = selectedDuration.price * quantity;
+    const totalPrice = (selectedDuration?.price || 0) * quantity;
     if (balance < totalPrice) {
       setPaymentError('Insufficient wallet balance. Please top up your wallet first.');
       return;
@@ -183,7 +189,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
   const confirmWalletPurchase = async () => {
     if (!currentUser) return;
-    const totalPrice = selectedDuration.price * quantity;
+    const totalPrice = (selectedDuration?.price || 0) * quantity;
     if (balance < totalPrice) return;
     
     setPaymentError('');
@@ -192,10 +198,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     // Deduct balance and immediately issue keys
     if (deductBalance(currentUser.uid, totalPrice)) {
       try {
-        const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser.uid, currentUser.email || undefined);
+        const keys = await purchaseKeys(selectedDuration?.value, quantity, currentUser.uid, currentUser.email || undefined);
         if (keys.length < quantity && currentUser?.uid) {
           const missingCount = quantity - keys.length;
-          addBalance(currentUser.uid, missingCount * selectedDuration.price);
+          addBalance(currentUser.uid, missingCount * (selectedDuration?.price || 0));
         }
         playSuccessSound();
         confetti({
@@ -267,10 +273,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
            setIsVerifying(true);
            setPaymentStep('processing');
            
-           const keys = await purchaseKeys(selectedDuration.value, quantity, currentUser?.uid, currentUser?.email || undefined);
+           const keys = await purchaseKeys(selectedDuration?.value, quantity, currentUser?.uid, currentUser?.email || undefined);
            if (keys.length < quantity && currentUser?.uid) {
              const missingCount = quantity - keys.length;
-             addBalance(currentUser.uid, missingCount * selectedDuration.price);
+             addBalance(currentUser.uid, missingCount * (selectedDuration?.price || 0));
            }
            playSuccessSound();
            confetti({
@@ -348,7 +354,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const handleProceed = async () => {
     setPaymentStep('processing');
     try {
-      const totalPrice = selectedDuration.price * quantity;
+      const totalPrice = (selectedDuration?.price || 0) * quantity;
       const res = await fetch('/api/fampay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -431,7 +437,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
 
 
-  const totalPrice = selectedDuration.price * quantity;
+  const totalPrice = (selectedDuration?.price || 0) * quantity;
 
   const filteredCategories = settings.categories.filter((category) => 
     category.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -527,14 +533,14 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                           className={`relative overflow-hidden px-4 py-3 border rounded-xl text-sm font-medium transition-all ${
                             option.stock <= 0
                               ? 'border-zinc-800 bg-zinc-900/50 text-zinc-600 cursor-not-allowed'
-                              : selectedDuration.value === option.value
+                              : selectedDuration?.value === option.value
                                 ? 'border-fuchsia-500 bg-fuchsia-500/10 text-fuchsia-400 shadow-[0_0_10px_rgba(224,0,255,0.2)]'
                                 : 'border-zinc-800 text-zinc-400 hover:border-fuchsia-500/50 hover:bg-fuchsia-500/5'
                           }`}
                         >
                           <div className="flex flex-col items-center justify-center">
                             <span className="block mb-1">{option.label}</span>
-                            <span className={`block text-xs ${option.stock <= 0 ? 'text-zinc-600 line-through' : selectedDuration.value === option.value ? 'text-fuchsia-400' : 'text-zinc-500'}`}>
+                            <span className={`block text-xs ${option.stock <= 0 ? 'text-zinc-600 line-through' : selectedDuration?.value === option.value ? 'text-fuchsia-400' : 'text-zinc-500'}`}>
                               ₹{option.price}
                             </span>
                             {option.stock <= 0 && (
@@ -601,7 +607,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                   <div className="flex flex-col gap-3 mt-2">
                     <button 
                       onClick={handleProceed}
-                      disabled={!selectedDuration || selectedDuration.stock <= 0 || quantity > selectedDuration.stock}
+                      disabled={!selectedDuration || selectedDuration?.stock <= 0 || quantity > selectedDuration?.stock}
                       className="w-full px-4 py-4 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-base font-medium rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all hover:shadow-[0_0_20px_rgba(224,0,255,0.6)]"
                     >
                       Pay via UPI (QR Code)
@@ -610,7 +616,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                     {currentUser && (
                       <button 
                         onClick={handleProceedWithWallet}
-                        disabled={!selectedDuration || selectedDuration.stock <= 0 || quantity > selectedDuration.stock || balance < totalPrice}
+                        disabled={!selectedDuration || selectedDuration?.stock <= 0 || quantity > selectedDuration?.stock || balance < totalPrice}
                         className="w-full px-4 py-4 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-base font-medium rounded-xl border border-zinc-700 transition-all flex items-center justify-center gap-2"
                       >
                         <Wallet className="w-5 h-5 text-fuchsia-400" />
@@ -629,7 +635,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                 </div>
                 <div>
                   <h4 className="text-xl font-bold text-white mb-2">Confirm Purchase</h4>
-                  <p className="text-zinc-400">Are you sure you want to spend <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{selectedDuration.price * quantity}</span> from your wallet balance?</p>
+                  <p className="text-zinc-400">Are you sure you want to spend <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{(selectedDuration?.price || 0) * quantity}</span> from your wallet balance?</p>
                   <p className="text-sm text-zinc-500 mt-2">Your current balance is ₹{balance}</p>
                 </div>
                 
