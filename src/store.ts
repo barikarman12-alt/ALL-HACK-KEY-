@@ -191,6 +191,7 @@ export const store = {
   getInventory: () => inventory,
   getSettings: () => settings,
   getPurchases: () => purchases,
+  isInitialized: () => initialized,
 
   updateSettings: (newSettings: Partial<ProductSettings>) => {
     settings = { ...settings, ...newSettings };
@@ -344,11 +345,13 @@ export function useInventory(userId?: string) {
   const [items, setItems] = useState(store.getInventory());
   const [settingsState, setSettingsState] = useState(store.getSettings());
   const [purchasesState, setPurchasesState] = useState<PurchaseRecord[]>([]);
+  const [isInitialized, setIsInitialized] = useState(store.isInitialized());
 
   useEffect(() => {
     return store.subscribe(() => {
       setItems(store.getInventory());
       setSettingsState(store.getSettings());
+      setIsInitialized(store.isInitialized());
       if (userId) {
          const userPurchases = store.getPurchases().filter(p => p.userId === userId);
          setPurchasesState(userPurchases);
@@ -378,6 +381,7 @@ export function useInventory(userId?: string) {
     removeKey: store.removeKey,
     addProduct: store.addProduct,
     deleteProduct: store.deleteProduct,
-    purchaseKeys: store.purchaseKeys
+    purchaseKeys: store.purchaseKeys,
+    isInitialized
   };
 }

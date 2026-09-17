@@ -124,7 +124,7 @@ const ProductCard = ({ category, pricingOptions, openPurchaseModal, fallbackColo
 
 export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const { currentUser } = useAuth();
-  const { items: pricingOptions, purchaseKeys, settings } = useInventory(currentUser?.uid);
+  const { items: pricingOptions, purchaseKeys, settings, isInitialized } = useInventory(currentUser?.uid);
   const { balance, deductBalance, addBalance } = useBalance(currentUser?.uid);
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<any>(pricingOptions[0] || null);
@@ -147,23 +147,25 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [isVerifying, setIsVerifying] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState(300);
+  const [isResumedPayment, setIsResumedPayment] = useState(false);
 
   // Resume payment flow if pending
   useEffect(() => {
-    const pendingStr = sessionStorage.getItem('pendingPayment');
+    const pendingStr = localStorage.getItem('pendingPayment');
     if (pendingStr && currentUser) {
       try {
         const pending = JSON.parse(pendingStr);
-        // Only resume if less than 15 mins old
-        if (Date.now() - pending.timestamp < 15 * 60 * 1000) {
+        // Resume if less than 24 hours old
+        if (Date.now() - pending.timestamp < 24 * 60 * 60 * 1000) {
           setSelectedProduct(pending.selectedProduct);
           setSelectedDuration(pending.selectedDuration);
           setQuantity(pending.quantity);
           setOrderId(pending.orderId);
+          setIsResumedPayment(true);
           setPaymentStep('qr');
           setTimeLeft(Math.max(0, 300 - Math.floor((Date.now() - pending.timestamp) / 1000)));
         } else {
-          sessionStorage.removeItem('pendingPayment');
+          localStorage.removeItem('pendingPayment');
         }
       } catch(e) {}
     }
@@ -244,8 +246,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       try {
         // If the user was redirected to /success, do NOT assume they paid.
         // We must verify with the server to prevent fraudulent key generation.
-        if (sessionStorage.getItem('paymentRedirected') === 'true') {
-           sessionStorage.removeItem('paymentRedirected');
+        if (localStorage.getItem('paymentRedirected') === 'true') {
+           localStorage.removeItem('paymentRedirected');
            setPaymentStep('processing'); // Show loading state while verifying
         }
 
@@ -273,6 +275,19 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
            setIsVerifying(true);
            setPaymentStep('processing');
            
+           if (!selectedProduct || isResumedPayment) {
+             const totalPrice = (selectedDuration?.price || 0) * quantity;
+             if (currentUser?.uid) {
+               addBalance(currentUser.uid, totalPrice);
+             }
+             playSuccessSound();
+             alert(`Payment successful! ₹${totalPrice} has been added to your Wallet balance because you left the payment screen.`);
+             localStorage.removeItem('pendingPayment');
+             setSelectedProduct(null);
+             setPaymentStep('configure');
+             return;
+           }
+           
            const keys = await purchaseKeys(selectedDuration?.value, quantity, currentUser?.uid, currentUser?.email || undefined);
            if (keys.length < quantity && currentUser?.uid) {
              const missingCount = quantity - keys.length;
@@ -287,12 +302,12 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
            });
            setPaymentStep('success');
            setGeneratedKeys(keys);
-           sessionStorage.removeItem('pendingPayment');
+           localStorage.removeItem('pendingPayment');
            return; // Stop polling on success
         } else if (isMounted && (status === 'error' || status === 'expired' || data.data?.status === 'FAILED')) {
            setPaymentError(data.message || 'Payment verification failed or expired.');
            setPaymentStep('configure');
-           sessionStorage.removeItem('pendingPayment');
+           localStorage.removeItem('pendingPayment');
            return; // Stop polling on error
         }
       } catch (err) {
@@ -305,7 +320,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     };
 
     if ((paymentStep === 'qr' || paymentStep === 'processing') && orderId) {
-      if (sessionStorage.getItem('paymentRedirected') === 'true') {
+      if (localStorage.getItem('paymentRedirected') === 'true') {
          // Fire immediately if redirected back from success
          pollPayment();
       } else {
@@ -410,7 +425,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         setTimeLeft(300);
         setPaymentStep('qr');
 
-        sessionStorage.setItem('pendingPayment', JSON.stringify({
+        localStorage.setItem('pendingPayment', JSON.stringify({
           orderId: data.order_id,
           selectedProduct: selectedProduct,
           selectedDuration: selectedDuration,
@@ -461,7 +476,12 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           </div>
         </div>
 
-        {filteredCategories.length > 0 ? (
+        {!isInitialized ? (
+          <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
+            <Loader2 className="w-12 h-12 animate-spin text-fuchsia-500 mb-4" />
+            <p className="text-xl font-medium">Loading store...</p>
+          </div>
+        ) : filteredCategories.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:gap-6 md:gap-8 max-w-5xl mx-auto">
             {filteredCategories.map((category, index) => {
               const fallbackColors = ['#d946ef', '#06b6d4', '#10b981', '#f59e0b'];

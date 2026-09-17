@@ -18,12 +18,12 @@ export default function App() {
     // If user lands on /success or has a pending payment, make sure they are on the home page 
     // to view the pricing component's modal logic
     const path = window.location.pathname;
-    if (path === '/success' || sessionStorage.getItem('pendingPayment')) {
+    if (path === '/success' || localStorage.getItem('pendingPayment')) {
       setCurrentPage('home');
       
       // Clean up the URL if it's just /success
       if (path === '/success') {
-         sessionStorage.setItem('paymentRedirected', 'true');
+         localStorage.setItem('paymentRedirected', 'true');
          window.history.replaceState({}, document.title, '/');
          window.history.pushState({ paymentSuccess: true }, document.title, '/');
       }
