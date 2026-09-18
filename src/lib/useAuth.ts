@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { auth } from './firebase';
+import { store } from '../store';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -44,12 +45,29 @@ export function useAuth() {
 
     const unsubscribe = onAuthStateChanged(auth, (user: FirebaseUser | null) => {
       if (user) {
+        const customId = user.email?.split('@')[0] || user.uid.substring(0, 8);
+        const displayName = user.displayName || customId;
+        const role = (user.email === 'barikarman12@gmail.com' || user.email === 'barikarman207@gmail.com' || user.email?.includes('barikarman')) ? 'owner' : 'customer';
+
         setCurrentUser({
           uid: user.uid,
           email: user.email,
-          displayName: user.displayName,
-          customId: user.email?.split('@')[0]
+          displayName,
+          customId
         });
+
+        // Sync to store & database
+        store.registerOrUpdateUser({
+          uid: user.uid,
+          email: user.email || '',
+          displayName,
+          customId,
+          photoURL: user.photoURL || undefined,
+          role,
+          createdAt: user.metadata?.creationTime || new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        });
+
         sessionStorage.removeItem('isGoogleLoginPending');
       } else {
         setCurrentUser(null);
@@ -80,10 +98,21 @@ export const loginWithIdMock = async (id: string, password: string) => {
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+    const customId = id;
+    const displayName = user.displayName || customId;
+
+    store.registerOrUpdateUser({
+      uid: user.uid,
+      email: user.email || email,
+      displayName,
+      customId,
+      lastLoginAt: new Date().toISOString()
+    });
+
     return {
       uid: user.uid,
       email: user.email,
-      displayName: user.displayName,
+      displayName,
       customId: id
     };
   } catch (error: any) {
@@ -102,10 +131,24 @@ export const registerWithIdMock = async (id: string, password: string, name?: st
       await updateProfile(user, { displayName: name });
     }
     
+    const displayName = name || user.displayName || id;
+    const role = (email === 'barikarman12@gmail.com' || email === 'barikarman207@gmail.com' || email.includes('barikarman')) ? 'owner' : 'customer';
+
+    await store.registerOrUpdateUser({
+      uid: user.uid,
+      email: user.email || email,
+      displayName,
+      customId: id,
+      role,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString(),
+      status: 'active'
+    });
+
     return {
       uid: user.uid,
       email: user.email,
-      displayName: name || user.displayName,
+      displayName,
       customId: id
     };
   } catch (error: any) {

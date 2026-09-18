@@ -22,46 +22,47 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
   const [timeLeft, setTimeLeft] = useState(300);
   const [qrError, setQrError] = useState(false);
 
+  // Separate countdown timer effect
   useEffect(() => {
-    let isMounted = true;
-    let interval: NodeJS.Timeout;
-    let timeoutId: NodeJS.Timeout;
+    if (step !== 'qr' || timeLeft <= 0) return;
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          setError('Payment window expired. Please try again.');
+          setStep('input');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [step, timeLeft]);
 
-    if (step === 'qr') {
-      if (timeLeft > 0) {
-        interval = setInterval(() => {
-          setTimeLeft((prev) => prev - 1);
-        }, 1000);
-      } else {
-        setError('Payment window expired. Please try again.');
-        setStep('input');
+  // Check for existing pending balance topup on open
+  useEffect(() => {
+    if (!isOpen || !currentUser) return;
+    try {
+      const saved = localStorage.getItem('pendingPayment');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.type === 'balance' && (Date.now() - parsed.timestamp < 24 * 60 * 60 * 1000)) {
+          setOrderId(parsed.orderId);
+          setAmount(parsed.amount);
+          setStep('qr');
+        }
       }
-    }
+    } catch(e) {}
+  }, [isOpen, currentUser]);
+
+  // Dedicated polling effect that doesn't get cancelled by the timer
+  useEffect(() => {
+    if (!orderId || (step !== 'qr' && step !== 'processing') || !isOpen) return;
+    let isMounted = true;
 
     const pollPayment = async () => {
-      if (!orderId || step !== 'qr') return;
+      if (!orderId || !isMounted) return;
       
       try {
-        if (sessionStorage.getItem('paymentRedirected') === 'true') {
-           sessionStorage.removeItem('paymentRedirected');
-           
-           setStep('processing');
-           addBalance(currentUser!.uid, amount);
-           confetti({
-             particleCount: 150,
-             spread: 80,
-             origin: { y: 0.6 },
-             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-           });
-           setStep('success');
-     
-           setTimeout(() => {
-             onClose();
-             setStep('input');
-           }, 4000);
-           return;
-        }
-
         const res = await fetch('/api/fampay/verify-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -72,58 +73,54 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
         try {
           data = JSON.parse(text);
         } catch (e) {
-          console.warn('Verify Polling Error (Not JSON) - Static mode fallback active');
-          if (isMounted) {
-            timeoutId = setTimeout(pollPayment, 3000);
-          }
           return;
         }
         
-        const status = (data.status || '').toLowerCase();
-        if (isMounted && (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID')) {
-           setStep('processing');
-           addBalance(currentUser!.uid, amount);
-           confetti({
-             particleCount: 150,
-             spread: 80,
-             origin: { y: 0.6 },
-             colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-           });
-           setStep('success');
-     
-           setTimeout(() => {
-             onClose();
-             setStep('input');
-           }, 4000);
-           return;
+        const status = (data.status || data.data?.status || '').toString().toLowerCase();
+        if (isMounted && (status === 'success' || status === 'paid' || status === 'completed')) {
+          setStep('processing');
+          if (currentUser?.uid) {
+            addBalance(currentUser.uid, amount, {
+              method: 'UPI / QR Gateway (FamPay)',
+              referenceId: orderId,
+              note: `Wallet balance deposit of ₹${amount} via FamPay UPI Gateway`,
+              type: 'deposit',
+              userEmail: currentUser.email || ''
+            });
+          }
+          localStorage.removeItem('pendingPayment');
+          confetti({
+            particleCount: 150,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+          });
+          setStep('success');
+
+          setTimeout(() => {
+            if (isMounted) {
+              onClose();
+              setStep('input');
+            }
+          }, 3000);
         } else if (isMounted && (status === 'error' || status === 'expired' || data.data?.status === 'FAILED')) {
-           setError(data.message || 'Payment verification failed or expired.');
-           setStep('input');
-           return;
+          setError(data.message || 'Payment verification failed or expired.');
+          setStep('input');
+          localStorage.removeItem('pendingPayment');
         }
       } catch (err) {
         console.error('Polling error:', err);
       }
-      
-      if (isMounted) {
-        timeoutId = setTimeout(pollPayment, 5000);
-      }
     };
 
-    if (step === 'qr' && orderId) {
-      if (sessionStorage.getItem('paymentRedirected') === 'true') {
-        pollPayment();
-      } else {
-        timeoutId = setTimeout(pollPayment, 3000);
-      }
-    }
+    pollPayment();
+    const interval = setInterval(pollPayment, 3000);
 
     return () => {
       isMounted = false;
-      if (interval) clearInterval(interval);
-      if (timeoutId) clearTimeout(timeoutId);
+      clearInterval(interval);
     };
-  }, [step, orderId, timeLeft, onClose, amount, addBalance, currentUser]);
+  }, [step, orderId, isOpen, amount, addBalance, currentUser, onClose]);
 
   const handleProceed = async () => {
     if (amount < 10) {
@@ -184,9 +181,24 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
         if (data.qr_url) setQrUrl(data.qr_url);
         setTimeLeft(300);
         setStep('qr');
+
+        // Save pending payment so if user presses back or leaves, balance is credited upon verification
+        try {
+          localStorage.setItem('pendingPayment', JSON.stringify({
+            orderId: data.order_id,
+            type: 'balance',
+            amount: amount,
+            userId: currentUser?.uid,
+            timestamp: Date.now()
+          }));
+        } catch(e) {}
         
         // Auto redirect
-        window.location.href = redirectUrl;
+        if (redirectUrl.startsWith('http')) {
+          window.open(redirectUrl, '_blank');
+        } else {
+          window.location.href = redirectUrl;
+        }
       } else {
         setError(data.error || data.message || 'Failed to initialize payment.');
         setStep('input');

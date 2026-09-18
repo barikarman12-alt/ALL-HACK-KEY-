@@ -29,6 +29,34 @@
         "keys": "array",
         "date": "timestamp"
       }
+    },
+    "walletTransactions": {
+      "description": "Records of user balance additions, deposits, refunds, and adjustments.",
+      "schema": {
+        "id": "string",
+        "userId": "string",
+        "userEmail": "string",
+        "type": "string",
+        "amount": "number",
+        "method": "string",
+        "referenceId": "string",
+        "note": "string",
+        "date": "timestamp",
+        "status": "string"
+      }
+    },
+    "notifications": {
+      "description": "User notifications including refund credits, order updates, and alerts.",
+      "schema": {
+        "id": "string",
+        "userId": "string",
+        "title": "string",
+        "message": "string",
+        "type": "string",
+        "amount": "number",
+        "read": "boolean",
+        "date": "timestamp"
+      }
     }
   }
 }

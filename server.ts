@@ -87,8 +87,11 @@ async function startServer() {
       }
 
       // Check if the webhook already confirmed this order
-      if (orders[order_id] && orders[order_id].status === 'success') {
-         return res.json({ status: 'success', data: orders[order_id] });
+      if (orders[order_id]) {
+        const orderStatus = (orders[order_id].status || '').toLowerCase();
+        if (orderStatus === 'success' || orderStatus === 'paid') {
+          return res.json({ status: 'success', data: orders[order_id] });
+        }
       }
 
       const response = await fetch(`https://famgateway.in/api/verify-order.php?api_key=${apiKey}&order_id=${order_id}`);
@@ -101,6 +104,11 @@ async function startServer() {
         console.error('Verify order invalid JSON:', text.substring(0, 100));
         // Return a pending state if the gateway fails, NEVER assume success unless explicitly confirmed
         return res.json({ status: 'pending', message: 'Awaiting confirmation from gateway' });
+      }
+      
+      const st = (data.status || data.data?.status || '').toString().toLowerCase();
+      if (st === 'success' || st === 'paid' || st === 'completed') {
+        return res.json({ status: 'success', data: data.data || data });
       }
       
       return res.status(response.status).json(data);

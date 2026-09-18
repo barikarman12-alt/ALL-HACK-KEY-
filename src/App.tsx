@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
-import { Pricing } from './components/Pricing';
+import { Pricing, PurchaseSuccessPayload } from './components/Pricing';
 import { OwnerProfile } from './components/OwnerProfile';
 import { Footer } from './components/Footer';
 import { SupportChat } from './components/SupportChat';
 import { Dashboard } from './components/Dashboard';
 import { PurchaseHistoryModal } from './components/PurchaseHistoryModal';
 import { Login } from './components/Login';
+import { KeyReceivedPage, KeyReceivedData } from './components/KeyReceivedPage';
+import { PaymentWatcher } from './components/PaymentWatcher';
 import { useAuth } from './lib/useAuth';
 
 export default function App() {
-  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login'>('home');
+  const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login' | 'key-received'>('home');
   const [showPurchases, setShowPurchases] = useState(false);
+  const [receivedKeyData, setReceivedKeyData] = useState<KeyReceivedData | null>(null);
   const { currentUser, loading } = useAuth();
   
   useEffect(() => {
@@ -38,17 +41,34 @@ export default function App() {
     }
   }, [currentUser, currentPage, isOwner]);
 
+  const handlePurchaseSuccess = useCallback((payload?: PurchaseSuccessPayload) => {
+    if (payload) {
+      setReceivedKeyData(payload);
+    }
+    setCurrentPage('key-received');
+  }, []);
+
   return (
     <div className="min-h-screen bg-zinc-950 font-sans selection:bg-fuchsia-500 selection:text-white text-zinc-100">
       <Header 
         currentPage={currentPage} 
         onNavigate={setCurrentPage}
-        onShowPurchases={() => setShowPurchases(true)}
+        onShowPurchases={() => setCurrentPage('key-received')}
       />
       
-      {currentPage === 'home' || (!isOwner && currentPage === 'dashboard') ? (
+      {currentPage === 'key-received' ? (
+        <main>
+          <KeyReceivedPage 
+            data={receivedKeyData}
+            onBackToHome={() => setCurrentPage('home')}
+          />
+        </main>
+      ) : currentPage === 'home' || (!isOwner && currentPage === 'dashboard') ? (
         <main className="pt-20">
-          <Pricing onPurchaseSuccess={() => setShowPurchases(true)} onRequiresLogin={() => setCurrentPage('login')} />
+          <Pricing 
+            onPurchaseSuccess={handlePurchaseSuccess} 
+            onRequiresLogin={() => setCurrentPage('login')} 
+          />
           <OwnerProfile />
         </main>
       ) : currentPage === 'login' ? (
@@ -61,8 +81,9 @@ export default function App() {
         </main>
       )}
       
-      {(currentPage === 'home' || (!isOwner && currentPage === 'dashboard')) && <Footer />}
+      {(currentPage === 'home' || currentPage === 'key-received' || (!isOwner && currentPage === 'dashboard')) && <Footer />}
       <SupportChat />
+      <PaymentWatcher onKeyReceived={handlePurchaseSuccess} />
       {showPurchases && (
         <PurchaseHistoryModal onClose={() => setShowPurchases(false)} />
       )}

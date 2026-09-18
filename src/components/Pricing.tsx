@@ -1,12 +1,21 @@
-import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet, Search } from 'lucide-react';
-import { useState, useEffect, SVGProps } from 'react';
+import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users } from 'lucide-react';
+import { useState, useEffect, useRef, SVGProps } from 'react';
 import confetti from 'canvas-confetti';
 import { FastAverageColor } from 'fast-average-color';
-import { useInventory, useBalance } from '../store';
+import { useInventory, useBalance, useCoupons, Coupon, getCouponRemainingTime, resolveProductName } from '../store';
 import { useAuth } from '../lib/useAuth';
 
+export interface PurchaseSuccessPayload {
+  keys: string[];
+  productName?: string;
+  durationLabel?: string;
+  amount?: number;
+  couponCode?: string;
+  date?: string;
+}
+
 interface PricingProps {
-  onPurchaseSuccess?: () => void;
+  onPurchaseSuccess?: (payload?: PurchaseSuccessPayload) => void;
   onRequiresLogin?: () => void;
 }
 
@@ -126,6 +135,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const { currentUser } = useAuth();
   const { items: pricingOptions, purchaseKeys, settings, isInitialized } = useInventory(currentUser?.uid);
   const { balance, deductBalance, addBalance } = useBalance(currentUser?.uid);
+  const { validateCoupon } = useCoupons();
+
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<any>(pricingOptions[0] || null);
 
@@ -134,12 +145,18 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       setSelectedDuration(pricingOptions[0]);
     }
   }, [pricingOptions, selectedDuration]);
+
   const [quantity, setQuantity] = useState(1);
   const [paymentStep, setPaymentStep] = useState<'configure' | 'qr' | 'processing' | 'success' | 'wallet_confirm'>('configure');
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
   const [utrNumber, setUtrNumber] = useState('');
   const [paymentError, setPaymentError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Coupon state
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
+  const [couponError, setCouponError] = useState('');
 
   const [orderId, setOrderId] = useState('');
   const [paymentUrl, setPaymentUrl] = useState('');
@@ -148,6 +165,53 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState(300);
   const [isResumedPayment, setIsResumedPayment] = useState(false);
+
+  // Dynamic pricing calculation with coupon
+  const baseTotalPrice = (selectedDuration?.price || 0) * quantity;
+
+  const calculateDiscount = (coupon: Coupon | null, basePrice: number) => {
+    if (!coupon) return 0;
+    let disc = 0;
+    if (coupon.discountType === 'percentage') {
+      disc = Math.round((basePrice * coupon.discountValue) / 100);
+    } else {
+      disc = Math.round(coupon.discountValue);
+    }
+    // Cap discount so price is at least ₹1
+    return Math.min(disc, Math.max(0, basePrice - 1));
+  };
+
+  const discountAmount = calculateDiscount(appliedCoupon, baseTotalPrice);
+  const totalPrice = Math.max(1, baseTotalPrice - discountAmount);
+
+  const handleApplyCoupon = () => {
+    if (!couponInput.trim()) return;
+    const res = validateCoupon(couponInput.trim(), baseTotalPrice, selectedDuration?.value);
+    if (!res.valid || !res.coupon) {
+      setCouponError(res.message || 'Invalid or inactive coupon code');
+      setAppliedCoupon(null);
+    } else {
+      setAppliedCoupon(res.coupon);
+      setCouponError('');
+    }
+  };
+
+  // If user switches product or duration and the applied coupon is restricted to specific products
+  useEffect(() => {
+    if (appliedCoupon && selectedDuration?.value) {
+      const res = validateCoupon(appliedCoupon.code, baseTotalPrice, selectedDuration.value);
+      if (!res.valid) {
+        setAppliedCoupon(null);
+        setCouponError(res.message || 'Coupon removed because it is not valid for this product.');
+      }
+    }
+  }, [selectedDuration?.value, baseTotalPrice]);
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError('');
+  };
 
   // Resume payment flow if pending
   useEffect(() => {
@@ -179,9 +243,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
   const handleProceedWithWallet = async () => {
     if (!currentUser) return;
-    const totalPrice = (selectedDuration?.price || 0) * quantity;
     if (balance < totalPrice) {
-      setPaymentError('Insufficient wallet balance. Please top up your wallet first.');
+      setPaymentError(`Insufficient wallet balance. You need ₹${totalPrice} but have ₹${balance}. Please top up your wallet.`);
       return;
     }
     
@@ -191,19 +254,32 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
   const confirmWalletPurchase = async () => {
     if (!currentUser) return;
-    const totalPrice = (selectedDuration?.price || 0) * quantity;
     if (balance < totalPrice) return;
     
     setPaymentError('');
     setPaymentStep('processing');
     
-    // Deduct balance and immediately issue keys
+    // Deduct balance (discounted totalPrice) and immediately issue keys
     if (deductBalance(currentUser.uid, totalPrice)) {
       try {
-        const keys = await purchaseKeys(selectedDuration?.value, quantity, currentUser.uid, currentUser.email || undefined);
+        const keys = await purchaseKeys(
+          selectedDuration?.value, 
+          quantity, 
+          currentUser.uid, 
+          currentUser.email || undefined,
+          { amount: totalPrice, couponCode: appliedCoupon?.code }
+        );
         if (keys.length < quantity && currentUser?.uid) {
           const missingCount = quantity - keys.length;
-          addBalance(currentUser.uid, missingCount * (selectedDuration?.price || 0));
+          const refundPerKey = Math.round(totalPrice / quantity);
+          const refundAmt = missingCount * refundPerKey;
+          addBalance(currentUser.uid, refundAmt, {
+            method: 'Auto-Refund (Stock Limit)',
+            referenceId: `part_ref_${Date.now()}`,
+            note: `Auto-refund for ${missingCount} unfulfilled key(s) (${resolveProductName(selectedProduct || '', settings.categories, pricingOptions)})`,
+            type: 'refund',
+            userEmail: currentUser.email || undefined
+          });
         }
         playSuccessSound();
         confetti({
@@ -212,8 +288,24 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           origin: { y: 0.6 },
           colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
         });
-        setPaymentStep('success');
-        setGeneratedKeys(keys);
+        
+        const payload: PurchaseSuccessPayload = {
+          keys,
+          productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
+          durationLabel: selectedDuration?.label || '',
+          amount: totalPrice,
+          couponCode: appliedCoupon?.code,
+          date: new Date().toISOString()
+        };
+        localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
+
+        closePurchaseModal();
+        if (onPurchaseSuccess) {
+          onPurchaseSuccess(payload);
+        } else {
+          setPaymentStep('success');
+          setGeneratedKeys(keys);
+        }
       } catch (err) {
         setPaymentError('Failed to generate keys. Please contact support.');
         setPaymentStep('configure');
@@ -224,31 +316,41 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     }
   };
 
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
-    let isMounted = true;
-    let interval: NodeJS.Timeout;
+  const onPurchaseSuccessRef = useRef(onPurchaseSuccess);
+  onPurchaseSuccessRef.current = onPurchaseSuccess;
 
-    if (paymentStep === 'qr') {
-      if (timeLeft > 0) {
-        interval = setInterval(() => {
-          setTimeLeft((prev) => prev - 1);
-        }, 1000);
-      } else {
-        setPaymentError('Payment window expired. Please try again.');
-        setPaymentStep('configure');
-      }
-    }
+  const purchaseKeysRef = useRef(purchaseKeys);
+  purchaseKeysRef.current = purchaseKeys;
+
+  const addBalanceRef = useRef(addBalance);
+  addBalanceRef.current = addBalance;
+
+  // Separate timer effect to avoid re-triggering polling every second
+  useEffect(() => {
+    if (paymentStep !== 'qr') return;
+    const interval = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [paymentStep]);
+
+  useEffect(() => {
+    if (!orderId || (paymentStep !== 'qr' && paymentStep !== 'processing')) return;
+    let isMounted = true;
 
     const pollPayment = async () => {
-      if (!orderId || (paymentStep !== 'qr' && paymentStep !== 'processing') || isVerifying) return;
+      if (!orderId || (paymentStep !== 'qr' && paymentStep !== 'processing') || isVerifying || !isMounted) return;
       
       try {
-        // If the user was redirected to /success, do NOT assume they paid.
-        // We must verify with the server to prevent fraudulent key generation.
         if (localStorage.getItem('paymentRedirected') === 'true') {
            localStorage.removeItem('paymentRedirected');
-           setPaymentStep('processing'); // Show loading state while verifying
+           setPaymentStep('processing');
         }
 
         const res = await fetch('/api/fampay/verify-order', {
@@ -262,37 +364,58 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         try {
           data = JSON.parse(text);
         } catch (e) {
-          console.warn('Verify Polling Error (Not JSON) - Static mode fallback active');
-          if (isMounted) {
-            timeoutId = setTimeout(pollPayment, 3000);
-          }
           return;
         }
         
-        // Wait for status 'success' or 'PAID' from the webhook/verify endpoint
-        const status = (data.status || '').toLowerCase();
-        if (isMounted && (status === 'success' || status === 'paid' || data.data?.status === 'SUCCESS' || data.data?.status === 'PAID')) {
+        // Wait for status 'success', 'paid', or 'PAID' from the webhook/verify endpoint
+        const status = (data.status || data.data?.status || '').toString().toLowerCase();
+        if (isMounted && (status === 'success' || status === 'paid' || status === 'completed')) {
            setIsVerifying(true);
            setPaymentStep('processing');
            
-           if (!selectedProduct || isResumedPayment) {
-             const totalPrice = (selectedDuration?.price || 0) * quantity;
-             if (currentUser?.uid) {
-               addBalance(currentUser.uid, totalPrice);
+           const pendingStr = localStorage.getItem('pendingPayment');
+           let orderAmount = (selectedDuration?.price || 0) * quantity;
+           let orderCoupon: string | undefined = undefined;
+           if (pendingStr) {
+             try {
+               const parsed = JSON.parse(pendingStr);
+               if (parsed.amount) orderAmount = parsed.amount;
+               if (parsed.couponCode) orderCoupon = parsed.couponCode;
+             } catch (e) {}
+           }
+
+           const targetUid = currentUser?.uid;
+
+           // Try to generate keys
+           let keys: string[] = [];
+           if (selectedDuration?.value) {
+             try {
+               keys = await purchaseKeysRef.current(
+                 selectedDuration.value, 
+                 quantity, 
+                 targetUid, 
+                 currentUser?.email || undefined,
+                 { amount: orderAmount, couponCode: orderCoupon }
+               );
+             } catch (err) {
+               console.warn('Error purchasing keys:', err);
              }
-             playSuccessSound();
-             alert(`Payment successful! ₹${totalPrice} has been added to your Wallet balance because you left the payment screen.`);
-             localStorage.removeItem('pendingPayment');
-             setSelectedProduct(null);
-             setPaymentStep('configure');
-             return;
            }
-           
-           const keys = await purchaseKeys(selectedDuration?.value, quantity, currentUser?.uid, currentUser?.email || undefined);
-           if (keys.length < quantity && currentUser?.uid) {
+
+           // If some or all keys missing due to stock, refund to wallet balance
+           if (keys.length < quantity && targetUid) {
              const missingCount = quantity - keys.length;
-             addBalance(currentUser.uid, missingCount * (selectedDuration?.price || 0));
+             const refundPerKey = Math.round(orderAmount / quantity);
+             const refundAmt = missingCount * refundPerKey;
+             addBalanceRef.current(targetUid, refundAmt, {
+               method: 'Auto-Refund (Stock Limit)',
+               referenceId: orderId,
+               note: `Auto-refund for ${missingCount} unfulfilled key(s) (${resolveProductName(selectedProduct || '', settings.categories, pricingOptions)})`,
+               type: 'refund',
+               userEmail: currentUser?.email || undefined
+             });
            }
+
            playSuccessSound();
            confetti({
              particleCount: 150,
@@ -300,40 +423,60 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
              origin: { y: 0.6 },
              colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
            });
-           setPaymentStep('success');
-           setGeneratedKeys(keys);
-           localStorage.removeItem('pendingPayment');
-           return; // Stop polling on success
+
+           if (keys.length > 0) {
+             const payload: PurchaseSuccessPayload = {
+               keys,
+               productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
+               durationLabel: selectedDuration?.label || '',
+               amount: orderAmount,
+               couponCode: orderCoupon,
+               date: new Date().toISOString()
+             };
+             localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
+             localStorage.removeItem('pendingPayment');
+
+             closePurchaseModal();
+             if (onPurchaseSuccessRef.current) {
+               onPurchaseSuccessRef.current(payload);
+             } else {
+               setPaymentStep('success');
+               setGeneratedKeys(keys);
+             }
+           } else {
+             // 0 keys in stock, full amount went to wallet balance
+             if (targetUid) {
+               addBalanceRef.current(targetUid, orderAmount, {
+                 method: 'Auto-Refund (Out of Stock)',
+                 referenceId: orderId,
+                 note: `Full auto-refund for out-of-stock order #${orderId} (${resolveProductName(selectedProduct || '', settings.categories, pricingOptions)})`,
+                 type: 'refund',
+                 userEmail: currentUser?.email || undefined
+               });
+             }
+             localStorage.removeItem('pendingPayment');
+             closePurchaseModal();
+             setPaymentStep('configure');
+           }
+           return;
         } else if (isMounted && (status === 'error' || status === 'expired' || data.data?.status === 'FAILED')) {
            setPaymentError(data.message || 'Payment verification failed or expired.');
            setPaymentStep('configure');
            localStorage.removeItem('pendingPayment');
-           return; // Stop polling on error
+           return;
         }
       } catch (err) {
         console.error('Polling error:', err);
       }
-      
-      if (isMounted) {
-        timeoutId = setTimeout(pollPayment, 5000);
-      }
     };
 
-    if ((paymentStep === 'qr' || paymentStep === 'processing') && orderId) {
-      if (localStorage.getItem('paymentRedirected') === 'true') {
-         // Fire immediately if redirected back from success
-         pollPayment();
-      } else {
-         timeoutId = setTimeout(pollPayment, 3000); // reduced to 3s to be snappier
-      }
-    }
-
+    pollPayment();
+    const interval = setInterval(pollPayment, 3000);
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
       clearInterval(interval);
     };
-  }, [paymentStep, orderId, isVerifying, selectedDuration, quantity, currentUser, purchaseKeys, onPurchaseSuccess, timeLeft]);
+  }, [paymentStep, orderId, isVerifying, selectedDuration, quantity, currentUser?.uid, currentUser?.email, selectedProduct]);
 
   const openPurchaseModal = (productName: string) => {
     if (!currentUser) {
@@ -353,10 +496,16 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     setPaymentUrl('');
     setQrUrl('');
     setTimeLeft(300);
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError('');
   };
 
   const closePurchaseModal = () => {
     setSelectedProduct(null);
+    setAppliedCoupon(null);
+    setCouponInput('');
+    setCouponError('');
   };
 
   const handleQuantityChange = (delta: number) => {
@@ -369,7 +518,6 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const handleProceed = async () => {
     setPaymentStep('processing');
     try {
-      const totalPrice = (selectedDuration?.price || 0) * quantity;
       const res = await fetch('/api/fampay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -427,9 +575,15 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
         localStorage.setItem('pendingPayment', JSON.stringify({
           orderId: data.order_id,
-          selectedProduct: selectedProduct,
-          selectedDuration: selectedDuration,
+          type: 'keys',
+          amount: totalPrice,
+          userId: currentUser?.uid,
+          productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
+          categoryId: selectedProduct,
+          durationLabel: selectedDuration?.label,
+          durationValue: selectedDuration?.value,
           quantity: quantity,
+          couponCode: appliedCoupon?.code,
           timestamp: Date.now()
         }));
         
@@ -449,10 +603,6 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       setPaymentStep('configure');
     }
   };
-
-
-
-  const totalPrice = (selectedDuration?.price || 0) * quantity;
 
   const filteredCategories = settings.categories.filter((category) => 
     category.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -607,6 +757,96 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                       <span className="text-sm text-gray-500">Max 10 limit</span>
                     </div>
                   </div>
+
+                  {/* Apply Coupon Code (Product Only) */}
+                  <div className="pt-4 border-t border-zinc-800/80">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="flex items-center gap-2 text-sm font-medium text-zinc-300">
+                        <Tag className="w-4 h-4 text-fuchsia-400" />
+                        Apply Coupon Code
+                      </span>
+                      {appliedCoupon && (
+                        <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Sparkles className="w-3 h-3" />
+                          {appliedCoupon.discountType === 'percentage' ? `${appliedCoupon.discountValue}% OFF` : `₹${appliedCoupon.discountValue} OFF`} Applied
+                        </span>
+                      )}
+                    </div>
+
+                    {appliedCoupon ? (
+                      <div className="flex items-center justify-between p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-xl">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-xs">
+                            %
+                          </div>
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="font-mono font-bold text-emerald-400 text-sm tracking-wide">{appliedCoupon.code}</span>
+                              <span className="text-xs text-zinc-400">({appliedCoupon.description || 'Discount'})</span>
+                              {appliedCoupon.expiresAt && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded font-medium">
+                                  <Clock className="w-3 h-3" />
+                                  {getCouponRemainingTime(appliedCoupon.expiresAt).text}
+                                </span>
+                              )}
+                              {appliedCoupon.maxUses && appliedCoupon.maxUses > 0 && (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/20 px-1.5 py-0.5 rounded font-medium">
+                                  <Users className="w-3 h-3" />
+                                  {Math.max(0, appliedCoupon.maxUses - (appliedCoupon.usageCount || 0))} left
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-xs text-emerald-300/90 font-medium">
+                              You saved ₹{discountAmount} on this order!
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleRemoveCoupon}
+                          className="px-2.5 py-1 text-xs text-zinc-400 hover:text-red-400 hover:bg-red-950/30 rounded-lg transition-colors flex items-center gap-1"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={couponInput}
+                            onChange={(e) => {
+                              setCouponInput(e.target.value.toUpperCase());
+                              if (couponError) setCouponError('');
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleApplyCoupon();
+                              }
+                            }}
+                            placeholder="Enter coupon code (e.g. DISCOUNT20)"
+                            className="flex-1 bg-zinc-900 border border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-fuchsia-500 font-mono tracking-wider"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleApplyCoupon}
+                            disabled={!couponInput.trim()}
+                            className="px-4 py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-all shadow-[0_0_10px_rgba(224,0,255,0.3)] shrink-0"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                        {couponError && (
+                          <div className="flex items-center gap-1.5 text-xs text-rose-400 bg-rose-950/30 border border-rose-500/20 px-3 py-1.5 rounded-lg">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                            <span>{couponError}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 
                 {/* Purchase Summary & Action */}
@@ -614,7 +854,17 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-zinc-400 mb-1">Total Amount</p>
-                      <p className="text-3xl font-bold font-display text-white">₹{totalPrice}</p>
+                      <div className="flex items-baseline gap-2.5">
+                        <p className="text-3xl font-bold font-display text-white">₹{totalPrice}</p>
+                        {appliedCoupon && discountAmount > 0 && (
+                          <>
+                            <span className="text-lg text-zinc-500 line-through">₹{baseTotalPrice}</span>
+                            <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-md">
+                              Saved ₹{discountAmount}
+                            </span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                   
@@ -655,7 +905,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                 </div>
                 <div>
                   <h4 className="text-xl font-bold text-white mb-2">Confirm Purchase</h4>
-                  <p className="text-zinc-400">Are you sure you want to spend <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{(selectedDuration?.price || 0) * quantity}</span> from your wallet balance?</p>
+                  <p className="text-zinc-400">Are you sure you want to spend <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{totalPrice}</span> from your wallet balance?</p>
+                  {appliedCoupon && (
+                    <p className="text-xs text-emerald-400 mt-1 font-medium">Includes coupon discount ({appliedCoupon.code})</p>
+                  )}
                   <p className="text-sm text-zinc-500 mt-2">Your current balance is ₹{balance}</p>
                 </div>
                 
