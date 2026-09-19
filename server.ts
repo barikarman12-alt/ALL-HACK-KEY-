@@ -49,24 +49,17 @@ async function startServer() {
         data = JSON.parse(text);
       } catch (parseError) {
         console.error('Invalid JSON received from payment gateway:', text.substring(0, 100));
-        // Fallback to mock data so the app doesn't break for users if the gateway is down
-        data = {
-          status: 'success',
-          order_id: clientTxnId,
-          checkout_url: `upi://pay?pa=armanbarik@fam&pn=Purchase&am=${amount}&cu=INR`,
-          qr_url: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=armanbarik@fam&pn=Purchase&am=${amount}&cu=INR`
-        };
+        return res.status(502).json({ error: 'Invalid response from payment gateway. Please try again later.' });
       }
 
-      // Adjusting to handle whatever famgateway.in returns - assuming it returns status and data
       if (data.status === 'success' || data.status === true || (data.data && data.data.order_id)) {
         res.json({
           success: true,
           client_txn_id: clientTxnId,
           order_id: data.data?.order_id || data.order_id || clientTxnId,
           checkout_url: data.data?.checkout_url || data.checkout_url,
-          payment_url: data.data?.checkout_url || data.data?.upi_intent || data.payment_url || data.upi_link || `upi://pay?pa=armanbarik@fam&pn=Purchase&am=${amount}&cu=INR`,
-          qr_url: data.data?.qr_url || data.qr_url || `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=upi://pay?pa=armanbarik@fam&pn=Purchase&am=${amount}&cu=INR`
+          payment_url: data.data?.checkout_url || data.data?.upi_intent || data.payment_url || data.upi_link,
+          qr_url: data.data?.qr_url || data.qr_url
         });
       } else {
         res.status(400).json({ error: data.message || 'Payment initiation failed', details: data });
@@ -82,19 +75,19 @@ async function startServer() {
       const { order_id } = req.body;
       const apiKey = 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
 
-      if (!order_id) {
-         return res.status(400).json({ error: 'order_id is required' });
+      if (!order_id || typeof order_id !== 'string') {
+         return res.status(400).json({ error: 'Valid order_id is required' });
       }
 
       // Check if the webhook already confirmed this order
       if (orders[order_id]) {
         const orderStatus = (orders[order_id].status || '').toLowerCase();
-        if (orderStatus === 'success' || orderStatus === 'paid') {
+        if (orderStatus === 'success' || orderStatus === 'paid' || orderStatus === 'completed') {
           return res.json({ status: 'success', data: orders[order_id] });
         }
       }
 
-      const response = await fetch(`https://famgateway.in/api/verify-order.php?api_key=${apiKey}&order_id=${order_id}`);
+      const response = await fetch(`https://famgateway.in/api/verify-order.php?api_key=${apiKey}&order_id=${encodeURIComponent(order_id)}`);
 
       const text = await response.text();
       let data;
@@ -102,8 +95,7 @@ async function startServer() {
         data = JSON.parse(text);
       } catch (e) {
         console.error('Verify order invalid JSON:', text.substring(0, 100));
-        // Return a pending state if the gateway fails, NEVER assume success unless explicitly confirmed
-        return res.json({ status: 'pending', message: 'Awaiting confirmation from gateway' });
+        return res.json({ status: 'pending', message: 'Awaiting confirmation from payment gateway' });
       }
       
       const st = (data.status || data.data?.status || '').toString().toLowerCase();
@@ -111,7 +103,7 @@ async function startServer() {
         return res.json({ status: 'success', data: data.data || data });
       }
       
-      return res.status(response.status).json(data);
+      return res.json({ status: 'pending', message: data.message || 'Payment pending or not confirmed' });
     } catch (error: any) {
       console.error('FamPay verify error:', error);
       res.status(500).json({ error: error.message || 'Verification failed' });

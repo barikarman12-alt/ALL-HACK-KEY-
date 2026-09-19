@@ -9,13 +9,16 @@ import { PurchaseHistoryModal } from './components/PurchaseHistoryModal';
 import { Login } from './components/Login';
 import { KeyReceivedPage, KeyReceivedData } from './components/KeyReceivedPage';
 import { PaymentWatcher } from './components/PaymentWatcher';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { useAuth } from './lib/useAuth';
+import { useInventory } from './store';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login' | 'key-received'>('home');
   const [showPurchases, setShowPurchases] = useState(false);
   const [receivedKeyData, setReceivedKeyData] = useState<KeyReceivedData | null>(null);
   const { currentUser, loading } = useAuth();
+  const { settings } = useInventory();
   
   useEffect(() => {
     // If user lands on /success or has a pending payment, make sure they are on the home page 
@@ -84,6 +87,7 @@ export default function App() {
       {(currentPage === 'home' || currentPage === 'key-received' || (!isOwner && currentPage === 'dashboard')) && <Footer />}
       <SupportChat />
       <PaymentWatcher onKeyReceived={handlePurchaseSuccess} />
+      <PWAInstallBanner siteName={settings.siteName} />
       {showPurchases && (
         <PurchaseHistoryModal onClose={() => setShowPurchases(false)} />
       )}

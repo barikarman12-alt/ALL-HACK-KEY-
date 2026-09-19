@@ -1,10 +1,11 @@
-import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut, Wallet, Plus, Key, Bell } from 'lucide-react';
+import { ShoppingCart, Menu, X, LayoutDashboard, Home, History, LogIn, LogOut, Wallet, Plus, Key, Bell, Download } from 'lucide-react';
 import { useState } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
 import { useBalance, useInventory, useNotifications } from '../store';
 import { AddBalanceModal } from './AddBalanceModal';
 import { NotificationsModal } from './NotificationsModal';
+import { InstallAppButton } from './InstallAppButton';
 
 interface HeaderProps {
   currentPage?: 'home' | 'dashboard' | 'login' | 'key-received';
@@ -134,12 +135,14 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                 </button>
               </div>
             )}
+            <InstallAppButton siteName={settings.siteName} />
             <a href="#pricing" onClick={() => onNavigate?.('home')} className="inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-full text-white bg-fuchsia-600 hover:bg-fuchsia-500 shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all">
               View Products
             </a>
           </div>
 
-          <div className="flex md:hidden items-center space-x-2 sm:space-x-3">
+          <div className="flex md:hidden items-center space-x-1.5 sm:space-x-2">
+            <InstallAppButton siteName={settings.siteName} className="!px-2 !py-1 !text-[10px]" />
             {currentUser ? (
               <>
                 <div className="flex items-center space-x-1 bg-zinc-900/80 border border-fuchsia-500/20 px-2 py-1 rounded-full shadow-[0_0_10px_rgba(224,0,255,0.1)]">
@@ -236,7 +239,8 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                 </button>
               )
             )}
-            <div className="mt-4 px-3">
+            <div className="mt-4 px-3 space-y-2">
+              <InstallAppButton variant="mobile-menu" siteName={settings.siteName} />
               <a href="#pricing" onClick={() => { onNavigate?.('home'); setIsMenuOpen(false); }} className="w-full flex items-center justify-center px-4 py-2 border border-transparent text-base font-medium rounded-full text-white bg-fuchsia-600 hover:bg-fuchsia-500 shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all">
                 View Products
               </a>
