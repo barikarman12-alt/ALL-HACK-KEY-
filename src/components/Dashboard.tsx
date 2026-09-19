@@ -126,7 +126,7 @@ export function Dashboard() {
   const [newDiscountType, setNewDiscountType] = useState<'percentage' | 'flat'>('percentage');
   const [newDiscountValue, setNewDiscountValue] = useState('20');
   const [newMinSpend, setNewMinSpend] = useState('0');
-  const [newValidHours, setNewValidHours] = useState('24'); // Default 24 hours validity
+  const [newValidHours, setNewValidHours] = useState('0'); // 0 = Lifetime (Never expires)
   const [newMaxUses, setNewMaxUses] = useState('0'); // 0 = unlimited
   const [newApplicableScope, setNewApplicableScope] = useState<'all' | 'specific'>('all');
   const [newSelectedProducts, setNewSelectedProducts] = useState<string[]>([]);
@@ -302,7 +302,7 @@ export function Dashboard() {
     setTimeout(() => setCouponSuccessMsg(''), 3000);
   };
 
-  const handleApplyPreset = (code: string, type: 'percentage' | 'flat', val: number, desc: string, hours: number = 24, maxUses: number = 0) => {
+  const handleApplyPreset = (code: string, type: 'percentage' | 'flat', val: number, desc: string, hours: number = 0, maxUses: number = 0) => {
     setNewCouponCode(code);
     setNewDiscountType(type);
     setNewDiscountValue(val.toString());

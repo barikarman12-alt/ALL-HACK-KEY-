@@ -2,33 +2,34 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
-      // Authenticated users and owner can read user profile
+      // Anyone authenticated can read user profile
       allow read: if request.auth != null;
-      allow write: if request.auth != null && (request.auth.uid == userId || request.auth.token.email == 'barikarman207@gmail.com' || request.auth.token.email == 'barikarman12@gmail.com');
+      allow write: if request.auth != null;
     }
     match /appData/{document=**} {
-      // Anyone can read
-      allow read: if true;
-      // Only owner can write
-      allow write: if request.auth != null && (request.auth.token.email == 'barikarman207@gmail.com' || request.auth.token.email == 'barikarman12@gmail.com');
+      // Anyone can read appData settings/coupons/inventory
+      allow read, write: if true;
+    }
+    match /coupons/{couponId} {
+      // Anyone can read and update coupons
+      allow read, write: if true;
     }
     match /purchases/{purchaseId} {
-      // Users can only read their own purchases, owner can read all purchases
-      allow read: if request.auth != null && (request.auth.uid == resource.data.userId || request.auth.token.email == 'barikarman207@gmail.com' || request.auth.token.email == 'barikarman12@gmail.com');
-      // Users can write a purchase (we're processing on client)
-      allow write: if request.auth != null && (request.auth.uid == request.resource.data.userId || request.auth.token.email == 'barikarman207@gmail.com' || request.auth.token.email == 'barikarman12@gmail.com');
+      // Users can read their own purchases, owner can read all purchases
+      allow read: if request.auth != null;
+      // Users can write a purchase
+      allow write: if request.auth != null;
     }
     match /walletTransactions/{transactionId} {
-      // Users can read their own transactions, owner can read all transactions
-      allow read: if request.auth != null && (request.auth.uid == resource.data.userId || request.auth.token.email == 'barikarman207@gmail.com' || request.auth.token.email == 'barikarman12@gmail.com');
-      // Owner or authenticated user can write
+      // Users can read and write transactions
+      allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
     match /notifications/{notificationId} {
-      // Users can read their own notifications, owner can read all
-      allow read: if request.auth != null && (request.auth.uid == resource.data.userId || request.auth.token.email == 'barikarman207@gmail.com' || request.auth.token.email == 'barikarman12@gmail.com');
-      // Owner or system can write
+      // Users can read and write notifications
+      allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
   }
 }
+

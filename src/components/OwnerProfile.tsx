@@ -1,4 +1,4 @@
-import { Github, Twitter, Linkedin, Mail } from 'lucide-react';
+import { Github, Twitter, Linkedin, Mail, Send } from 'lucide-react';
 import { useInventory } from '../store';
 
 export function OwnerProfile() {
@@ -42,17 +42,20 @@ export function OwnerProfile() {
               </p>
               
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
-                <a href="#" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
-                  <Github className="w-5 h-5" />
+                <a 
+                  href="https://t.me/FATHERXSIR" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white font-bold text-sm transition-all hover:-translate-y-1 shadow-[0_0_15px_rgba(14,165,233,0.4)] flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Contact Owner (@FATHERXSIR)
                 </a>
-                <a href="#" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
-                  <Twitter className="w-5 h-5" />
-                </a>
-                <a href="#" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
-                  <Linkedin className="w-5 h-5" />
-                </a>
-                <a href="mailto:barikarman12@gmail.com" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]">
+                <a href="mailto:barikarman12@gmail.com" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]" title="Email Owner">
                   <Mail className="w-5 h-5" />
+                </a>
+                <a href="https://t.me/FATHERXSIR" target="_blank" rel="noopener noreferrer" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]" title="Telegram Support">
+                  <Send className="w-5 h-5" />
                 </a>
               </div>
             </div>

@@ -25,14 +25,22 @@ export function Footer() {
               Designing tools for the modern creator. Redefining excellence, one product at a time.
             </p>
           </div>
-          <div className="flex space-x-6">
-            <a href="#" className="text-purple-300 hover:text-white transition-colors">
-              Twitter
+          <div className="flex items-center space-x-6">
+            <a 
+              href="https://t.me/FATHERXSIR" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-purple-300 hover:text-white transition-colors flex items-center gap-1.5"
+            >
+              <span>Telegram Support</span>
+              <span className="text-xs bg-purple-900/60 px-2 py-0.5 rounded-full text-purple-200 border border-purple-700/50">@FATHERXSIR</span>
             </a>
-            <a href="#" className="text-purple-300 hover:text-white transition-colors">
-              Instagram
-            </a>
-            <a href="#" className="text-purple-300 hover:text-white transition-colors">
+            <a 
+              href="https://t.me/FATHERXSIR" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-purple-300 hover:text-white transition-colors"
+            >
               Support
             </a>
           </div>

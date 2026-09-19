@@ -342,13 +342,13 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
               </div>
             </div>
             <a
-              href="https://t.me/barikarman"
+              href="https://t.me/FATHERXSIR"
               target="_blank"
               rel="noopener noreferrer"
               className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold transition-colors flex items-center gap-2"
             >
               <Send className="w-3.5 h-3.5" />
-              Contact Owner Support
+              Contact Owner Support (@FATHERXSIR)
             </a>
           </div>
         </div>

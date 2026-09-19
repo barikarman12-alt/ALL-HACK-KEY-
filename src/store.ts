@@ -210,11 +210,46 @@ const defaultSettings: ProductSettings = {
   categories: []
 };
 
+const loadInitialCoupons = (): Coupon[] => {
+  try {
+    const dedicated = localStorage.getItem('appDataCoupons');
+    if (dedicated) {
+      const parsed = JSON.parse(dedicated);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+    const global = localStorage.getItem('appDataGlobal');
+    if (global) {
+      const parsed = JSON.parse(global);
+      if (parsed && Array.isArray(parsed.coupons) && parsed.coupons.length > 0) return parsed.coupons;
+    }
+  } catch (e) {}
+  return defaultCoupons;
+};
+
+const mergeCoupons = (baseList: Coupon[], incomingList: Coupon[]): Coupon[] => {
+  const map = new Map<string, Coupon>();
+  (baseList || []).forEach(c => {
+    if (c && c.code) map.set(c.code.trim().toUpperCase(), c);
+  });
+  (incomingList || []).forEach(c => {
+    if (c && c.code) {
+      const key = c.code.trim().toUpperCase();
+      const existing = map.get(key);
+      if (existing) {
+        map.set(key, { ...existing, ...c, usageCount: Math.max(existing.usageCount || 0, c.usageCount || 0) });
+      } else {
+        map.set(key, c);
+      }
+    }
+  });
+  return Array.from(map.values());
+};
+
 let inventory: ProductKey[] = defaultInventory;
 let settings: ProductSettings = defaultSettings;
 let purchases: PurchaseRecord[] = [];
 let balances: Record<string, number> = {};
-let coupons: Coupon[] = defaultCoupons;
+let coupons: Coupon[] = loadInitialCoupons();
 let registeredUsers: UserProfile[] = [];
 let walletTransactions: WalletTransaction[] = [];
 let userNotifications: UserNotification[] = [];
@@ -223,15 +258,36 @@ const listeners = new Set<() => void>();
 let initialized = false;
 
 // Sync functions
+const syncCouponsToStorage = async () => {
+  try {
+    localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+    localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
+    
+    // Always attempt syncing to Firestore appData/coupons and appData/global
+    try {
+      await setDoc(doc(db, 'appData', 'coupons'), { coupons, updatedAt: new Date().toISOString() }, { merge: true });
+      await setDoc(doc(db, 'appData', 'global'), { inventory, settings, balances, coupons }, { merge: true });
+    } catch (e: any) {
+      console.warn('Firestore coupons sync notice:', e?.message || e);
+    }
+  } catch (e: any) {
+    console.warn('Failed to sync coupons to storage:', e?.message || e);
+  }
+};
+
 const syncToStorage = async () => {
   try {
     localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
-    // Only attempt to sync if user is logged in
-    if (auth.currentUser) {
+    localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+    
+    try {
       await setDoc(doc(db, 'appData', 'global'), { inventory, settings, balances, coupons }, { merge: true });
+      await setDoc(doc(db, 'appData', 'coupons'), { coupons, updatedAt: new Date().toISOString() }, { merge: true });
+    } catch (e: any) {
+      console.warn('Firestore sync notice:', e?.message || e);
     }
   } catch (e: any) {
-    console.warn('Failed to sync to Firestore (this is expected if not logged in as admin):', e.message);
+    console.warn('Failed to sync to storage:', e?.message || e);
   }
 };
 
@@ -285,6 +341,28 @@ const initializeData = async () => {
   initialized = true;
 
   try {
+    // 1. First ensure any locally created coupons are loaded
+    const localSavedCoupons = localStorage.getItem('appDataCoupons');
+    if (localSavedCoupons) {
+      try {
+        const parsed = JSON.parse(localSavedCoupons);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          coupons = mergeCoupons(coupons, parsed);
+        }
+      } catch (e) {}
+    }
+
+    // 2. Fetch coupons from dedicated doc appData/coupons
+    try {
+      const cSnap = await getDoc(doc(db, 'appData', 'coupons'));
+      if (cSnap.exists()) {
+        const cData = cSnap.data();
+        if (Array.isArray(cData.coupons)) {
+          coupons = mergeCoupons(coupons, cData.coupons);
+        }
+      }
+    } catch (e) {}
+
     const globalDoc = await getDoc(doc(db, 'appData', 'global'));
     const purchasesDoc = await getDoc(doc(db, 'appData', 'purchases'));
 
@@ -301,7 +379,7 @@ const initializeData = async () => {
         balances = { ...balances, ...data.balances };
       }
       if (data.coupons && Array.isArray(data.coupons)) {
-        coupons = data.coupons;
+        coupons = mergeCoupons(coupons, data.coupons);
       }
     } else {
       // First time? Load from localStorage if any, then sync up to Firestore
@@ -316,12 +394,15 @@ const initializeData = async () => {
           }
         }
         if (data.balances) balances = { ...balances, ...data.balances };
-        if (data.coupons && Array.isArray(data.coupons)) coupons = data.coupons;
+        if (data.coupons && Array.isArray(data.coupons)) coupons = mergeCoupons(coupons, data.coupons);
       }
       if (auth.currentUser) {
         await syncToStorage();
       }
     }
+
+    // Always cache the merged coupons to local storage
+    localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
 
     // Hydrate any local user balances from localStorage
     try {
@@ -473,6 +554,17 @@ const initializeData = async () => {
     store.notify();
 
     // Listen to real-time changes
+    onSnapshot(doc(db, 'appData', 'coupons'), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        if (data.coupons && Array.isArray(data.coupons)) {
+          coupons = mergeCoupons(coupons, data.coupons);
+          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+          store.notify();
+        }
+      }
+    });
+
     onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
@@ -484,7 +576,8 @@ const initializeData = async () => {
           }
         }
         if (data.coupons && Array.isArray(data.coupons)) {
-          coupons = data.coupons;
+          coupons = mergeCoupons(coupons, data.coupons);
+          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
         }
         if (data.balances) {
           balances = { ...balances, ...data.balances };
@@ -578,8 +671,9 @@ const initializeData = async () => {
   }
 };
 
-// Delay initialization until Auth state is known to avoid initial permission errors
+// Initialize store data immediately
 let userDocUnsub: (() => void) | null = null;
+initializeData();
 
 onAuthStateChanged(auth, (user) => {
   if (!initialized) {
@@ -730,8 +824,9 @@ export const store = {
       usageCount: 0,
       createdAt: new Date().toISOString()
     };
-    // Replace if exists, or append
-    coupons = [newCoupon, ...coupons.filter(c => c.code !== code)];
+    // Replace if exists, or prepend
+    coupons = [newCoupon, ...coupons.filter(c => c.code.trim().toUpperCase() !== code)];
+    syncCouponsToStorage();
     syncToStorage();
     store.notify();
     return newCoupon;
@@ -747,18 +842,21 @@ export const store = {
       }
       return c;
     });
+    syncCouponsToStorage();
     syncToStorage();
     store.notify();
   },
 
   deleteCoupon: (id: string) => {
     coupons = coupons.filter(c => c.id !== id);
+    syncCouponsToStorage();
     syncToStorage();
     store.notify();
   },
 
   toggleCoupon: (id: string) => {
     coupons = coupons.map(c => c.id === id ? { ...c, active: !c.active } : c);
+    syncCouponsToStorage();
     syncToStorage();
     store.notify();
   },
@@ -772,6 +870,7 @@ export const store = {
       }
       return c;
     });
+    syncCouponsToStorage();
     syncToStorage();
     store.notify();
   },
@@ -781,7 +880,22 @@ export const store = {
     if (!code) {
       return { valid: false, discount: 0, finalPrice: currentTotal, message: 'Please enter a coupon code.' };
     }
-    const found = coupons.find(c => c.code.toUpperCase() === code);
+    let found = coupons.find(c => c.code.toUpperCase() === code);
+    if (!found) {
+      // Fallback check from localStorage in case memory state was reloaded
+      try {
+        const dedicated = localStorage.getItem('appDataCoupons');
+        if (dedicated) {
+          const parsed: Coupon[] = JSON.parse(dedicated);
+          const fallback = parsed.find(c => c.code && c.code.toUpperCase() === code);
+          if (fallback) {
+            found = fallback;
+            coupons = mergeCoupons(coupons, [fallback]);
+            store.notify();
+          }
+        }
+      } catch (e) {}
+    }
     if (!found) {
       return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${code}" is invalid.` };
     }

@@ -56,7 +56,17 @@ export function SupportChat() {
           <div className="bg-purple-950 p-4 flex justify-between items-center text-white">
             <div className="flex items-center space-x-2">
               <Bot className="w-5 h-5 text-purple-400" />
-              <span className="font-semibold">Support Assistant</span>
+              <div>
+                <span className="font-semibold block text-sm">Support Assistant</span>
+                <a 
+                  href="https://t.me/FATHERXSIR" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-[11px] text-sky-400 hover:underline flex items-center gap-1"
+                >
+                  <Send className="w-3 h-3 inline" /> Contact Owner: t.me/FATHERXSIR
+                </a>
+              </div>
             </div>
             <button 
               onClick={() => setIsOpen(false)}
