@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, X, Wallet, Key, Sparkles } from 'lucide-react';
+import { Loader2, RefreshCw, CheckCircle2, AlertTriangle, X, Wallet, Key } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../lib/useAuth';
 import { useBalance, useInventory, resolveProductName } from '../store';
@@ -61,7 +61,7 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [successToast, setSuccessToast] = useState<string | null>(null);
 
-  // Keep latest mutable values in refs
+  // Keep latest mutable values in refs to prevent useEffect dependencies loops
   const pendingRef = useRef<PendingPaymentData | null>(pending);
   pendingRef.current = pending;
 
@@ -80,9 +80,6 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
   const purchaseKeysRef = useRef(purchaseKeys);
   purchaseKeysRef.current = purchaseKeys;
 
-  // Track already credited orders locally to prevent double processing in same session
-  const processedOrdersRef = useRef<Set<string>>(new Set());
-
   // Safe helper that updates React state only if the stored order is actually different
   const syncPendingFromStorage = useCallback(() => {
     const current = readStoredPending();
@@ -95,148 +92,6 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
     }
     return current;
   }, []);
-
-  // Background Auto-Reconciliation for Payments Made Even If Site Was Closed
-  const reconcileUserPayments = useCallback(async () => {
-    const user = currentUserRef.current;
-    if (!user || !user.uid) return;
-
-    let pendingOrderIds: string[] = [];
-    try {
-      const storedIds = localStorage.getItem(`user_pending_orders_${user.uid}`);
-      if (storedIds) {
-        pendingOrderIds = JSON.parse(storedIds);
-      }
-    } catch (e) {}
-
-    const pendingItem = readStoredPending();
-    if (pendingItem?.orderId && !pendingOrderIds.includes(pendingItem.orderId)) {
-      pendingOrderIds.push(pendingItem.orderId);
-    }
-
-    try {
-      const res = await fetch('/api/fampay/reconcile-user-payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: user.uid,
-          userEmail: user.email,
-          pendingOrderIds
-        })
-      });
-
-      const data = await res.json();
-      if (data.success && Array.isArray(data.uncreditedOrders) && data.uncreditedOrders.length > 0) {
-        for (const order of data.uncreditedOrders) {
-          if (processedOrdersRef.current.has(order.order_id)) continue;
-          processedOrdersRef.current.add(order.order_id);
-
-          const targetUid = order.userId || user.uid;
-          const orderAmt = Number(order.amount) || 0;
-
-          if (order.orderType === 'balance' || !order.durationValue) {
-            // Auto add balance to wallet
-            addBalanceRef.current(targetUid, orderAmt, {
-              method: 'UPI Gateway (Auto-Reconciled)',
-              referenceId: order.order_id,
-              note: `Wallet deposit of ₹${orderAmt} (Auto-credited for Order #${order.order_id})`,
-              type: 'deposit',
-              userEmail: user.email || undefined
-            });
-
-            // Mark as credited on server
-            fetch('/api/fampay/mark-credited', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ order_id: order.order_id, userId: targetUid })
-            }).catch(() => {});
-
-            playDing();
-            confetti({
-              particleCount: 160,
-              spread: 80,
-              origin: { y: 0.6 },
-              colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-            });
-
-            setSuccessToast(`💰 ₹${orderAmt} Auto-Credited: We detected your payment for Order #${order.order_id} while you were away!`);
-            setTimeout(() => setSuccessToast(null), 8000);
-
-            // Clean pending storage if matched
-            if (pendingRef.current?.orderId === order.order_id) {
-              localStorage.removeItem('pendingPayment');
-              pendingRef.current = null;
-              setPending(null);
-            }
-          } else {
-            // Keys order auto-fulfillment
-            const quantity = order.quantity || 1;
-            try {
-              const keys = await purchaseKeysRef.current(
-                order.durationValue,
-                quantity,
-                targetUid,
-                user.email || undefined
-              );
-
-              fetch('/api/fampay/mark-credited', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ order_id: order.order_id, userId: targetUid })
-              }).catch(() => {});
-
-              if (keys && keys.length > 0) {
-                const payload: PurchaseSuccessPayload = {
-                  keys,
-                  productName: resolveProductName(order.productName, settings.categories, items),
-                  durationLabel: order.durationLabel || '',
-                  amount: orderAmt,
-                  date: new Date().toISOString()
-                };
-                localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
-                playDing();
-                setSuccessToast(`🎉 Order #${order.order_id} Confirmed! Your ${keys.length} license key(s) are ready in Purchase History.`);
-                setTimeout(() => setSuccessToast(null), 8000);
-
-                if (onKeyReceivedRef.current) {
-                  onKeyReceivedRef.current(payload);
-                }
-              } else {
-                // Out of stock refund to wallet
-                addBalanceRef.current(targetUid, orderAmt, {
-                  method: 'Auto-Refund (Stock Out)',
-                  referenceId: order.order_id,
-                  note: `Auto-refund of ₹${orderAmt} for keys limit`,
-                  type: 'refund',
-                  userEmail: user.email || undefined
-                });
-                setSuccessToast(`Payment received! ₹${orderAmt} was credited to your Wallet.`);
-                setTimeout(() => setSuccessToast(null), 8000);
-              }
-            } catch (err) {
-              addBalanceRef.current(targetUid, orderAmt, {
-                method: 'Auto-Refund',
-                referenceId: order.order_id,
-                note: `Refund of ₹${orderAmt} to wallet`,
-                type: 'refund',
-                userEmail: user.email || undefined
-              });
-              setSuccessToast(`Payment verified! ₹${orderAmt} added to your Wallet balance.`);
-              setTimeout(() => setSuccessToast(null), 8000);
-            }
-
-            if (pendingRef.current?.orderId === order.order_id) {
-              localStorage.removeItem('pendingPayment');
-              pendingRef.current = null;
-              setPending(null);
-            }
-          }
-        }
-      }
-    } catch (e) {
-      // Reconcile failed silently, will retry on next tick
-    }
-  }, [settings.categories, items]);
 
   const verifyPayment = useCallback(async (isManual: boolean = false) => {
     const target = pendingRef.current || readStoredPending();
@@ -252,11 +107,7 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
       const res = await fetch('/api/fampay/verify-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          order_id: target.orderId,
-          userId: currentUserRef.current?.uid,
-          userEmail: currentUserRef.current?.email
-        })
+        body: JSON.stringify({ order_id: target.orderId })
       });
 
       const data = await res.json();
@@ -276,13 +127,6 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
         setPending(null);
 
         const targetUid = target.userId || currentUserRef.current?.uid;
-
-        // Mark as credited on backend
-        fetch('/api/fampay/mark-credited', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order_id: target.orderId, userId: targetUid })
-        }).catch(() => {});
 
         if (target.type === 'balance' || !target.durationValue) {
           if (targetUid) {
@@ -361,25 +205,23 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
       isCheckingRef.current = false;
       setIsChecking(false);
     }
-  }, [settings.categories, items]);
+  }, []);
 
-  // Set up auto-reconcile & listeners
+  // Set up listeners once on mount
   useEffect(() => {
-    // Initial runs
+    // Initial verification if pending exists
     const p = syncPendingFromStorage();
     if (p) {
       verifyPayment(false);
     }
-    reconcileUserPayments();
 
-    // Polling interval: single pending verification (3s) + auto-reconciliation (7s)
+    // Polling interval
     const interval = setInterval(() => {
       const active = syncPendingFromStorage();
       if (active) {
         verifyPayment(false);
       }
-      reconcileUserPayments();
-    }, 5000);
+    }, 4000);
 
     // Event handlers for when user returns from UPI app or switches tabs
     const handleActive = () => {
@@ -388,7 +230,6 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
         if (active) {
           verifyPayment(false);
         }
-        reconcileUserPayments();
       }
     };
 
@@ -400,7 +241,7 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
       window.removeEventListener('visibilitychange', handleActive);
       window.removeEventListener('focus', handleActive);
     };
-  }, [syncPendingFromStorage, verifyPayment, reconcileUserPayments]);
+  }, [syncPendingFromStorage, verifyPayment]);
 
   const handleDismiss = () => {
     localStorage.removeItem('pendingPayment');
@@ -414,17 +255,17 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
       {/* Success Notification Toast */}
       {successToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[100] max-w-md w-full px-4 animate-in slide-in-from-top duration-300">
-          <div className="bg-emerald-950/95 border border-emerald-500/60 text-white p-4 rounded-2xl shadow-[0_0_35px_rgba(16,185,129,0.35)] backdrop-blur-md flex items-center gap-3">
-            <div className="p-2.5 bg-emerald-500/20 rounded-xl text-emerald-400 shrink-0">
-              <Sparkles className="w-6 h-6 animate-pulse" />
+          <div className="bg-emerald-950/90 border border-emerald-500/50 text-white p-4 rounded-2xl shadow-[0_0_30px_rgba(16,185,129,0.3)] backdrop-blur-md flex items-center gap-3">
+            <div className="p-2 bg-emerald-500/20 rounded-xl text-emerald-400">
+              <CheckCircle2 className="w-6 h-6" />
             </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-bold text-emerald-200 text-sm">Payment Synchronized!</div>
-              <div className="text-xs text-emerald-100/90 leading-relaxed">{successToast}</div>
+            <div className="flex-1">
+              <div className="font-bold text-emerald-200">Payment Confirmed!</div>
+              <div className="text-sm text-emerald-100/90">{successToast}</div>
             </div>
             <button 
               onClick={() => setSuccessToast(null)}
-              className="text-emerald-400 hover:text-white p-1.5 rounded-lg shrink-0 cursor-pointer"
+              className="text-emerald-400 hover:text-white p-1 rounded-lg"
             >
               <X className="w-5 h-5" />
             </button>
@@ -495,4 +336,3 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
     </>
   );
 }
-

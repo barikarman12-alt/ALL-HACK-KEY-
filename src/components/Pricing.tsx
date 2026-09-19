@@ -369,11 +369,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         const res = await fetch('/api/fampay/verify-order', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            order_id: orderId,
-            userId: currentUser?.uid,
-            userEmail: currentUser?.email
-          })
+          body: JSON.stringify({ order_id: orderId })
         });
         
         const text = await res.text();
@@ -402,13 +398,6 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
            }
 
            const targetUid = currentUser?.uid;
-
-           // Mark as credited on server
-           fetch('/api/fampay/mark-credited', {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({ order_id: orderId, userId: targetUid })
-           }).catch(() => {});
 
            // Try to generate keys
            let keys: string[] = [];
@@ -490,7 +479,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
            return;
         }
       } catch (err) {
-        // Silently retry on next poll tick
+        console.error('Polling error:', err);
       }
     };
 
@@ -539,129 +528,92 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     }
   };
 
-  const [copiedUpi, setCopiedUpi] = useState(false);
-
-  const handleCopyUpi = () => {
-    navigator.clipboard.writeText('armanbarik@fam');
-    setCopiedUpi(true);
-    setTimeout(() => setCopiedUpi(false), 2500);
-  };
-
-  const handleVerifyUTR = async () => {
-    if (!orderId) return;
-    if (!utrNumber || utrNumber.trim().length < 6) {
-      setPaymentError('Please enter valid 12-digit UTR or Transaction ID');
-      return;
-    }
-    setPaymentError('');
-    setIsVerifying(true);
-    try {
-      const res = await fetch('/api/fampay/submit-utr', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          order_id: orderId, 
-          utr: utrNumber.trim(),
-          userId: currentUser?.uid,
-          userEmail: currentUser?.email
-        })
-      });
-      const data = await res.json();
-      if (data.status === 'success' || data.success) {
-        // Triggers the auto verification
-      }
-    } catch (e) {
-      console.error('UTR verify err:', e);
-    }
-  };
-
   const handleProceed = async () => {
     setPaymentStep('processing');
-    setPaymentError('');
     try {
       const res = await fetch('/api/fampay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          amount: totalPrice,
-          userId: currentUser?.uid,
-          userEmail: currentUser?.email,
-          orderType: 'keys',
-          productName: selectedProduct,
-          durationLabel: selectedDuration?.label,
-          durationValue: selectedDuration?.value,
-          quantity: quantity,
-          couponCode: appliedCoupon?.code
-        })
+        body: JSON.stringify({ amount: totalPrice })
       });
       
-      let data: any;
+      const text = await res.text();
+      let data;
       try {
-        const text = await res.text();
         data = JSON.parse(text);
       } catch (e) {
-        // Direct fallback
-        const clientTxnId = `txn_${Date.now()}`;
-        const upiUrl = `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR&tr=${clientTxnId}`;
-        data = {
-          success: true,
-          order_id: `ORD_${Date.now()}`,
-          checkout_url: upiUrl,
-          payment_url: upiUrl,
-          qr_url: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiUrl)}`
-        };
-      }
-      
-      const effectiveOrderId = data.order_id || `ORD_${Date.now()}`;
-      const effectivePaymentUrl = data.checkout_url || data.payment_url || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR&tr=${effectiveOrderId}`;
-      const effectiveQrUrl = data.qr_url || `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(effectivePaymentUrl)}`;
-
-      setOrderId(effectiveOrderId);
-      setPaymentUrl(effectivePaymentUrl);
-      setQrUrl(effectiveQrUrl);
-      setTimeLeft(300);
-      setPaymentStep('qr');
-
-      localStorage.setItem('pendingPayment', JSON.stringify({
-        orderId: effectiveOrderId,
-        type: 'keys',
-        amount: totalPrice,
-        userId: currentUser?.uid,
-        productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
-        categoryId: selectedProduct,
-        durationLabel: selectedDuration?.label,
-        durationValue: selectedDuration?.value,
-        quantity: quantity,
-        couponCode: appliedCoupon?.code,
-        timestamp: Date.now()
-      }));
-
-      // Store into user pending orders list
-      if (currentUser?.uid) {
-        const key = `user_pending_orders_${currentUser.uid}`;
-        const existingList: string[] = JSON.parse(localStorage.getItem(key) || '[]');
-        if (!existingList.includes(effectiveOrderId)) {
-          existingList.push(effectiveOrderId);
-          localStorage.setItem(key, JSON.stringify(existingList.slice(-20)));
+        console.warn('Backend API not responding with JSON. Attempting direct client-side fetch (Static mode fallback)...');
+        try {
+          const apiKey = 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
+          const directRes = await fetch(`https://famgateway.in/api/create-order.php`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              amount: parseFloat(totalPrice.toString()).toFixed(2),
+              redirect_url: window.location.origin + '/success',
+              webhook_url: window.location.origin + '/api/fampay/webhook'
+            })
+          });
+          const directText = await directRes.text();
+          const extData = JSON.parse(directText);
+          data = {
+              success: true,
+              order_id: extData.data?.order_id || extData.order_id || `txn_${Date.now()}`,
+              checkout_url: extData.data?.checkout_url || extData.checkout_url,
+              payment_url: extData.data?.checkout_url || extData.data?.upi_intent || extData.payment_url || extData.upi_link,
+              qr_url: extData.data?.qr_url || extData.qr_url
+          };
+        } catch (directErr) {
+          console.error('Direct fetch failed:', directErr);
+          setPaymentError('Payment Gateway is currently unavailable. Please try again later.');
+          setPaymentStep('configure');
+          return;
         }
       }
       
-      // If mobile or standard UPI intent, attempt intent redirection
-      if (effectivePaymentUrl.startsWith('upi://') && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-        window.location.href = effectivePaymentUrl;
-      } else if (effectivePaymentUrl.startsWith('http')) {
-        window.open(effectivePaymentUrl, '_blank');
+      if (data.order_id) {
+        setOrderId(data.order_id);
+        
+        const redirectUrl = data.checkout_url || data.payment_url || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`;
+        setPaymentUrl(redirectUrl);
+
+        if (data.qr_url) {
+           setQrUrl(data.qr_url);
+        }
+        setTimeLeft(300);
+        setPaymentStep('qr');
+
+        localStorage.setItem('pendingPayment', JSON.stringify({
+          orderId: data.order_id,
+          type: 'keys',
+          amount: totalPrice,
+          userId: currentUser?.uid,
+          productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
+          categoryId: selectedProduct,
+          durationLabel: selectedDuration?.label,
+          durationValue: selectedDuration?.value,
+          quantity: quantity,
+          couponCode: appliedCoupon?.code,
+          timestamp: Date.now()
+        }));
+        
+        // Auto redirect
+        if (redirectUrl.startsWith('http')) {
+          window.open(redirectUrl, '_blank');
+        } else {
+          window.location.href = redirectUrl;
+        }
+      } else {
+        setPaymentError(data.error || data.message || 'Failed to initialize payment.');
+        setPaymentStep('configure');
       }
     } catch (err: any) {
-      console.error('Payment init fallback:', err);
-      // Even if network fails entirely, show the direct UPI QR
-      const fallbackOrderId = `ORD_${Date.now()}`;
-      const fallbackUpi = `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR&tr=${fallbackOrderId}`;
-      setOrderId(fallbackOrderId);
-      setPaymentUrl(fallbackUpi);
-      setQrUrl(`https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(fallbackUpi)}`);
-      setTimeLeft(300);
-      setPaymentStep('qr');
+      console.error(err);
+      setPaymentError(err.message || 'Failed to initialize payment');
+      setPaymentStep('configure');
     }
   };
 
@@ -997,78 +949,35 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
             )}
 
             {paymentStep === 'qr' && (
-              <div className="p-6 sm:p-8 space-y-5 flex flex-col items-center text-center">
+              <div className="p-10 space-y-6 flex flex-col items-center text-center">
+                <Loader2 className="w-12 h-12 text-fuchsia-500 animate-spin mb-4" />
                 <div>
-                  <h4 className="text-xl sm:text-2xl font-bold text-white mb-1">Scan & Pay via UPI</h4>
-                  <p className="text-sm text-zinc-400">
-                    Amount: <span className="font-bold text-fuchsia-400 text-base">₹{totalPrice}</span>
-                  </p>
+                  <h4 className="text-2xl font-bold text-white mb-2">Redirecting...</h4>
+                  <p className="text-zinc-400">Please complete your payment of <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{totalPrice}</span> on the gateway.</p>
                 </div>
+                
+                <a 
+                  href={paymentUrl || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
+                  target={paymentUrl?.startsWith('http') ? '_blank' : '_self'}
+                  rel="noopener noreferrer"
+                  className="mt-6 px-6 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 font-medium rounded-xl transition-all border border-white/10 flex items-center gap-2"
+                >
+                  Click here if not redirected
+                </a>
 
-                {/* QR Code Container */}
-                <div className="bg-white p-3 rounded-2xl shadow-[0_0_25px_rgba(224,0,255,0.3)] border-2 border-fuchsia-500/40 inline-block">
-                  <img 
-                    src={qrUrl || `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(paymentUrl || `upi://pay?pa=armanbarik@fam&pn=ARMAN%20X%20STORE&am=${totalPrice}&cu=INR`)}`} 
-                    alt="UPI QR Code" 
-                    className="w-48 h-48 sm:w-52 sm:h-52 object-contain rounded-xl"
-                  />
-                </div>
-
-                {/* Direct UPI App Launch */}
-                <div className="w-full flex flex-col gap-2.5">
-                  <a 
-                    href={paymentUrl || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
-                    className="w-full py-3 px-4 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white font-semibold text-sm rounded-xl shadow-[0_0_15px_rgba(224,0,255,0.4)] transition-all flex items-center justify-center gap-2"
-                  >
-                    <span>⚡ Pay with GPay / PhonePe / Paytm</span>
-                  </a>
-
-                  {/* Copy UPI ID */}
-                  <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 px-3.5 py-2 rounded-xl text-xs sm:text-sm">
-                    <span className="text-zinc-400">UPI ID: <strong className="text-zinc-200">armanbarik@fam</strong></span>
-                    <button 
-                      onClick={handleCopyUpi} 
-                      className="text-fuchsia-400 hover:text-fuchsia-300 font-medium ml-2 px-2 py-1 bg-fuchsia-500/10 hover:bg-fuchsia-500/20 rounded-md transition-colors"
-                    >
-                      {copiedUpi ? 'Copied! ✓' : 'Copy'}
-                    </button>
-                  </div>
-                </div>
-
-                {/* UTR / Transaction ID Manual Verification */}
-                <div className="w-full bg-zinc-900/70 border border-zinc-800/80 p-3.5 rounded-2xl text-left space-y-2">
-                  <label className="text-xs font-medium text-zinc-300 block">
-                    Paid already? Enter 12-digit UTR / UPI Ref No. for Instant Key:
-                  </label>
-                  <div className="flex gap-2">
-                    <input 
-                      type="text" 
-                      placeholder="e.g. 425689123456" 
-                      value={utrNumber}
-                      onChange={(e) => setUtrNumber(e.target.value)}
-                      className="flex-1 bg-zinc-950 border border-zinc-700 rounded-xl px-3 py-2 text-xs sm:text-sm text-white focus:outline-none focus:border-fuchsia-500"
-                    />
-                    <button 
-                      onClick={handleVerifyUTR}
-                      className="px-3 py-2 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs sm:text-sm font-semibold rounded-xl transition-all whitespace-nowrap"
-                    >
-                      Verify
-                    </button>
-                  </div>
-                </div>
-
-                {/* Timer & Status */}
-                <div className="w-full space-y-2">
-                  <div className="flex items-center justify-center gap-2 text-fuchsia-400 animate-pulse">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span className="text-xs font-medium">Auto-detecting payment... ({Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')})</span>
+                <div className="w-full pt-4 space-y-4">
+                  <div className="flex items-center justify-center gap-2 text-fuchsia-400 mt-4 animate-pulse">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span className="text-sm font-medium">Waiting for payment... ({Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')})</span>
                   </div>
                   
                   {paymentError && (
-                    <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-2.5 rounded-lg text-xs text-center">
+                    <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm mb-4 text-center">
                       {paymentError}
                     </div>
                   )}
+
+
                 </div>
               </div>
             )}
