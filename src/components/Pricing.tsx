@@ -617,8 +617,20 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     }
   };
 
-  const filteredCategories = settings.categories.filter((category) => 
-    category.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const rawCategories = Array.isArray(settings?.categories) && settings.categories.length > 0 
+    ? settings.categories 
+    : [
+        {
+          id: 'bgmi_mod',
+          name: 'BGMI VIP KEY',
+          logoUrl: '/logo.png',
+          theme: 'dark',
+          popular: true
+        }
+      ];
+
+  const filteredCategories = rawCategories.filter((category) => 
+    (category?.name || '').toLowerCase().includes((searchQuery || '').toLowerCase())
   );
 
   return (

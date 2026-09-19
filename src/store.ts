@@ -230,13 +230,15 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
     const saved = localStorage.getItem('appDataGlobal');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed.inventory && Array.isArray(parsed.inventory)) {
+      if (parsed.inventory && Array.isArray(parsed.inventory) && parsed.inventory.length > 0) {
         inv = parsed.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
       }
       if (parsed.settings) {
         sett = { ...defaultSettings, ...parsed.settings };
-        if (sett.categories && Array.isArray(sett.categories)) {
+        if (sett.categories && Array.isArray(sett.categories) && sett.categories.length > 0) {
           sett.categories = sett.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+        } else {
+          sett.categories = defaultSettings.categories;
         }
       }
       if (parsed.balances) {
@@ -244,6 +246,13 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
       }
     }
   } catch (e) {}
+  
+  if (!sett.categories || sett.categories.length === 0) {
+    sett.categories = defaultSettings.categories;
+  }
+  if (!inv || inv.length === 0) {
+    inv = defaultInventory;
+  }
   return { inventory: inv, settings: sett, balances: bals };
 };
 
@@ -572,38 +581,40 @@ const initializeData = async () => {
       store.notify();
     }).catch(() => {});
 
-    // Listen to real-time changes
+    // Listen to real-time changes with safe error handling
     onSnapshot(doc(db, 'appData', 'coupons'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.coupons && Array.isArray(data.coupons)) {
           coupons = mergeCoupons(coupons, data.coupons);
-          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+          try { localStorage.setItem('appDataCoupons', JSON.stringify(coupons)); } catch(e) {}
           store.notify();
         }
       }
-    });
+    }, (err) => console.warn('Coupons realtime listener info:', err.message));
 
     onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
         if (data.settings) {
-          settings = data.settings;
-          if (settings.categories) {
+          settings = { ...defaultSettings, ...data.settings };
+          if (settings.categories && settings.categories.length > 0) {
             settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+          } else {
+            settings.categories = defaultSettings.categories;
           }
         }
         if (data.coupons && Array.isArray(data.coupons)) {
           coupons = mergeCoupons(coupons, data.coupons);
-          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+          try { localStorage.setItem('appDataCoupons', JSON.stringify(coupons)); } catch(e) {}
         }
         if (data.balances) {
           balances = { ...balances, ...data.balances };
         }
         store.notify();
       }
-    });
+    }, (err) => console.warn('Global realtime listener info:', err.message));
 
     onSnapshot(doc(db, 'appData', 'purchases'), (docSnap) => {
       if (docSnap.exists()) {
@@ -611,7 +622,7 @@ const initializeData = async () => {
         if (data.purchases) purchases = data.purchases;
         store.notify();
       }
-    });
+    }, (err) => console.warn('Purchases realtime listener info:', err.message));
 
     onSnapshot(doc(db, 'appData', 'usersRegistry'), (docSnap) => {
       if (docSnap.exists()) {
@@ -626,7 +637,7 @@ const initializeData = async () => {
           store.notify();
         }
       }
-    });
+    }, (err) => console.warn('UsersRegistry realtime listener info:', err.message));
 
     onSnapshot(doc(db, 'appData', 'walletTransactions'), (docSnap) => {
       if (docSnap.exists()) {
@@ -641,7 +652,7 @@ const initializeData = async () => {
           store.notify();
         }
       }
-    });
+    }, (err) => console.warn('Transactions realtime listener info:', err.message));
 
     onSnapshot(doc(db, 'appData', 'notifications'), (docSnap) => {
       if (docSnap.exists()) {
@@ -656,7 +667,7 @@ const initializeData = async () => {
           store.notify();
         }
       }
-    });
+    }, (err) => console.warn('Notifications realtime listener info:', err.message));
 
   } catch (e) {
     console.warn("Could not load from Firestore (expected if unauthenticated). Falling back to local storage:", e);
