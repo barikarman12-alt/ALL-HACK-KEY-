@@ -20,11 +20,21 @@ async function startServer() {
 
   app.post('/api/fampay/create-order', async (req, res) => {
     try {
-      const { amount } = req.body;
+      const { amount, redirect_url: customRedirect, origin: customOrigin } = req.body;
       const apiKey = 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
       const clientTxnId = `txn_${Math.random().toString(36).substring(2, 11)}`;
       
-      const origin = req.headers.origin || `http://${req.headers.host}`;
+      const forwardedProto = (req.headers['x-forwarded-proto'] as string) || (req.secure ? 'https' : 'http');
+      const forwardedHost = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'localhost:3000';
+      let serverOrigin = `${forwardedProto}://${forwardedHost}`;
+      if (!serverOrigin.startsWith('https://') && !serverOrigin.includes('localhost')) {
+        serverOrigin = serverOrigin.replace('http://', 'https://');
+      }
+
+      const origin = customOrigin || req.headers.origin || serverOrigin;
+      const finalRedirectUrl = customRedirect || `${origin}/success`;
+      const finalWebhookUrl = `${origin}/api/fampay/webhook`;
+
       const response = await fetch(`https://famgateway.in/api/create-order.php`, {
         method: 'POST',
         headers: {
@@ -33,8 +43,8 @@ async function startServer() {
         },
         body: JSON.stringify({
           amount: parseFloat(amount).toFixed(2),
-          redirect_url: `${origin}/success`,
-          webhook_url: `${origin}/api/fampay/webhook`
+          redirect_url: finalRedirectUrl,
+          webhook_url: finalWebhookUrl
         })
       });
 
@@ -59,7 +69,8 @@ async function startServer() {
           order_id: data.data?.order_id || data.order_id || clientTxnId,
           checkout_url: data.data?.checkout_url || data.checkout_url,
           payment_url: data.data?.checkout_url || data.data?.upi_intent || data.payment_url || data.upi_link,
-          qr_url: data.data?.qr_url || data.qr_url
+          qr_url: data.data?.qr_url || data.qr_url,
+          redirect_url: finalRedirectUrl
         });
       } else {
         res.status(400).json({ error: data.message || 'Payment initiation failed', details: data });
@@ -76,37 +87,115 @@ async function startServer() {
       const apiKey = 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
 
       if (!order_id || typeof order_id !== 'string') {
-         return res.status(400).json({ error: 'Valid order_id is required' });
+         return res.status(400).json({ status: 'error', error: 'Valid order_id is required' });
       }
 
-      // Check if the webhook already confirmed this order
+      // 1. Check if the webhook or in-memory cache already confirmed this order
       if (orders[order_id]) {
-        const orderStatus = (orders[order_id].status || '').toLowerCase();
+        const orderStatus = (orders[order_id].status || '').toString().toLowerCase();
         if (orderStatus === 'success' || orderStatus === 'paid' || orderStatus === 'completed') {
           return res.json({ status: 'success', data: orders[order_id] });
         }
       }
 
-      const response = await fetch(`https://famgateway.in/api/verify-order.php?api_key=${apiKey}&order_id=${encodeURIComponent(order_id)}`);
+      const headers: Record<string, string> = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'X-Api-Key': apiKey,
+        'Accept': 'application/json, text/plain, */*',
+        'Content-Type': 'application/json'
+      };
 
-      const text = await response.text();
-      let data;
+      let rawResponse: any = null;
+      let responseText = '';
+
+      // Try GET request with query params
       try {
-        data = JSON.parse(text);
-      } catch (e) {
-        console.error('Verify order invalid JSON:', text.substring(0, 100));
-        return res.json({ status: 'pending', message: 'Awaiting confirmation from payment gateway' });
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 8000);
+        
+        const getUrl = `https://famgateway.in/api/verify-order.php?api_key=${encodeURIComponent(apiKey)}&order_id=${encodeURIComponent(order_id)}`;
+        const getRes = await fetch(getUrl, {
+          method: 'GET',
+          headers,
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (getRes.ok) {
+          responseText = await getRes.text();
+        }
+      } catch (e: any) {
+        console.warn('GET verify-order notice:', e.message);
       }
-      
-      const st = (data.status || data.data?.status || '').toString().toLowerCase();
-      if (st === 'success' || st === 'paid' || st === 'completed') {
-        return res.json({ status: 'success', data: data.data || data });
+
+      // If GET didn't produce a valid response, try POST
+      if (!responseText || responseText.includes('error') || responseText.includes('404')) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 8000);
+          
+          const postRes = await fetch(`https://famgateway.in/api/verify-order.php`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              api_key: apiKey,
+              order_id: order_id
+            }),
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (postRes.ok) {
+            responseText = await postRes.text();
+          }
+        } catch (e: any) {
+          console.warn('POST verify-order notice:', e.message);
+        }
       }
-      
-      return res.json({ status: 'pending', message: data.message || 'Payment pending or not confirmed' });
+
+      if (responseText) {
+        try {
+          rawResponse = JSON.parse(responseText);
+        } catch (e) {
+          console.warn('Verify response was not JSON:', responseText.substring(0, 100));
+        }
+      }
+
+      if (rawResponse) {
+        const st = (
+          rawResponse.status || 
+          rawResponse.data?.status || 
+          rawResponse.payment_status || 
+          rawResponse.data?.payment_status || 
+          rawResponse.txn_status || 
+          ''
+        ).toString().toLowerCase();
+
+        const isSuccess = st === 'success' || st === 'paid' || st === 'completed' || rawResponse.status === true;
+
+        if (isSuccess) {
+          orders[order_id] = { status: 'success', ...rawResponse };
+          return res.json({ status: 'success', data: rawResponse.data || rawResponse });
+        }
+
+        return res.json({ 
+          status: 'pending', 
+          message: rawResponse.message || 'Payment is awaiting confirmation from UPI gateway. Please wait a few seconds and verify again.' 
+        });
+      }
+
+      // If gateway is temporarily slow or not returning JSON yet
+      return res.json({
+        status: 'pending',
+        message: 'Checking with payment gateway... If you completed the UPI payment, please tap Verify again in 5 seconds.'
+      });
+
     } catch (error: any) {
       console.error('FamPay verify error:', error);
-      res.status(500).json({ error: error.message || 'Verification failed' });
+      res.json({ 
+        status: 'pending', 
+        message: 'Could not reach gateway. If paid, please retry in a moment.' 
+      });
     }
   });
 

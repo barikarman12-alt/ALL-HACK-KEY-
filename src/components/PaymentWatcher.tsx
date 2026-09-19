@@ -41,12 +41,30 @@ const playDing = () => {
 function readStoredPending(): PendingPaymentData | null {
   try {
     const saved = localStorage.getItem('pendingPayment');
-    if (!saved) return null;
-    const parsed: PendingPaymentData = JSON.parse(saved);
-    if (parsed && parsed.orderId && Date.now() - (parsed.timestamp || 0) < 24 * 60 * 60 * 1000) {
-      return parsed;
+    if (saved) {
+      const parsed: PendingPaymentData = JSON.parse(saved);
+      if (parsed && parsed.orderId && Date.now() - (parsed.timestamp || 0) < 24 * 60 * 60 * 1000) {
+        return parsed;
+      }
+      localStorage.removeItem('pendingPayment');
     }
-    localStorage.removeItem('pendingPayment');
+
+    // Fallback: Check if redirected from payment gateway with order_id in URL params
+    const params = new URLSearchParams(window.location.search);
+    const orderIdFromUrl = params.get('order_id') || params.get('orderId') || params.get('client_txn_id') || params.get('txn_id');
+    if (orderIdFromUrl) {
+      const reconstructed: PendingPaymentData = {
+        orderId: orderIdFromUrl,
+        type: 'keys',
+        amount: 0,
+        userId: '',
+        timestamp: Date.now()
+      };
+      try {
+        localStorage.setItem('pendingPayment', JSON.stringify(reconstructed));
+      } catch(e) {}
+      return reconstructed;
+    }
   } catch (e) {}
   return null;
 }
@@ -93,6 +111,92 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
     return current;
   }, []);
 
+  const isOwner = currentUser?.email?.includes('barikarman') || 
+                  ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || 
+                  currentUser?.customId?.includes('barikarman');
+
+  const fulfillPayment = useCallback(async (target: PendingPaymentData) => {
+    playDing();
+    confetti({
+      particleCount: 150,
+      spread: 80,
+      origin: { y: 0.6 },
+      colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
+    });
+
+    localStorage.removeItem('pendingPayment');
+    pendingRef.current = null;
+    setPending(null);
+    setStatusMessage(null);
+
+    const targetUid = target.userId || currentUserRef.current?.uid;
+
+    if (target.type === 'balance' || !target.durationValue) {
+      if (targetUid) {
+        addBalanceRef.current(targetUid, target.amount, {
+          method: 'UPI / QR Gateway (FamPay)',
+          referenceId: target.orderId,
+          note: `Wallet balance deposit of ₹${target.amount} via UPI Gateway`,
+          type: 'deposit',
+          userEmail: currentUserRef.current?.email || undefined
+        });
+      }
+      setSuccessToast(`🎉 ₹${target.amount} successfully added to your Wallet balance!`);
+      setTimeout(() => setSuccessToast(null), 7000);
+    } else {
+      const quantity = target.quantity || 1;
+      try {
+        const keys = await purchaseKeysRef.current(
+          target.durationValue,
+          quantity,
+          targetUid,
+          currentUserRef.current?.email || undefined
+        );
+
+        if (keys && keys.length > 0) {
+          const payload: PurchaseSuccessPayload = {
+            keys,
+            productName: resolveProductName(target.productName, settings.categories, items),
+            durationLabel: target.durationLabel || '',
+            amount: target.amount,
+            date: new Date().toISOString()
+          };
+          localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
+          setSuccessToast(`🎉 Payment Confirmed! Your ${keys.length} key(s) are ready.`);
+          setTimeout(() => setSuccessToast(null), 6000);
+
+          if (onKeyReceivedRef.current) {
+            onKeyReceivedRef.current(payload);
+          }
+        } else {
+          if (targetUid) {
+            addBalanceRef.current(targetUid, target.amount, {
+              method: 'Auto-Refund (Stock Out)',
+              referenceId: target.orderId,
+              note: `Auto-refund of ₹${target.amount} for out-of-stock keys (${resolveProductName(target.productName, settings.categories, items)})`,
+              type: 'refund',
+              userEmail: currentUserRef.current?.email || undefined
+            });
+          }
+          setSuccessToast(`Payment received! Due to stock limit, ₹${target.amount} was refunded to your Wallet.`);
+          setTimeout(() => setSuccessToast(null), 8000);
+        }
+      } catch (e) {
+        if (targetUid) {
+          addBalanceRef.current(targetUid, target.amount, {
+            method: 'Auto-Refund (Stock Out)',
+            referenceId: target.orderId,
+            note: `Refund of ₹${target.amount} to wallet balance`,
+            type: 'refund',
+            userEmail: currentUserRef.current?.email || undefined
+          });
+        }
+        setSuccessToast(`Payment received! ₹${target.amount} was refunded to your Wallet.`);
+        setTimeout(() => setSuccessToast(null), 8000);
+      }
+    }
+  }, [items, settings.categories]);
+
   const verifyPayment = useCallback(async (isManual: boolean = false) => {
     const target = pendingRef.current || readStoredPending();
     if (!target || !target.orderId || isCheckingRef.current) return;
@@ -100,7 +204,7 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
     isCheckingRef.current = true;
     setIsChecking(true);
     if (isManual) {
-      setStatusMessage('Checking payment gateway status...');
+      setStatusMessage('Checking with UPI payment gateway...');
     }
 
     try {
@@ -110,102 +214,31 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
         body: JSON.stringify({ order_id: target.orderId })
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (e) {
+        data = { status: 'pending', message: 'Verifying payment...' };
+      }
+
       const status = (data.status || data.data?.status || '').toString().toLowerCase();
 
       if (status === 'success' || status === 'paid' || status === 'completed') {
-        playDing();
-        confetti({
-          particleCount: 150,
-          spread: 80,
-          origin: { y: 0.6 },
-          colors: ['#e000ff', '#4ade80', '#ffffff', '#fbbf24']
-        });
-
-        localStorage.removeItem('pendingPayment');
-        pendingRef.current = null;
-        setPending(null);
-
-        const targetUid = target.userId || currentUserRef.current?.uid;
-
-        if (target.type === 'balance' || !target.durationValue) {
-          if (targetUid) {
-            addBalanceRef.current(targetUid, target.amount, {
-              method: 'UPI / QR Gateway (FamPay)',
-              referenceId: target.orderId,
-              note: `Wallet balance deposit of ₹${target.amount} via UPI Gateway`,
-              type: 'deposit',
-              userEmail: currentUserRef.current?.email || undefined
-            });
-          }
-          setSuccessToast(`🎉 ₹${target.amount} successfully added to your Wallet balance!`);
-          setTimeout(() => setSuccessToast(null), 7000);
-        } else {
-          const quantity = target.quantity || 1;
-          try {
-            const keys = await purchaseKeysRef.current(
-              target.durationValue,
-              quantity,
-              targetUid,
-              currentUserRef.current?.email || undefined
-            );
-
-            if (keys && keys.length > 0) {
-              const payload: PurchaseSuccessPayload = {
-                keys,
-                productName: resolveProductName(target.productName, settings.categories, items),
-                durationLabel: target.durationLabel || '',
-                amount: target.amount,
-                date: new Date().toISOString()
-              };
-              localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
-              setSuccessToast(`🎉 Payment Confirmed! Your ${keys.length} key(s) are ready.`);
-              setTimeout(() => setSuccessToast(null), 6000);
-
-              if (onKeyReceivedRef.current) {
-                onKeyReceivedRef.current(payload);
-              }
-            } else {
-              if (targetUid) {
-                addBalanceRef.current(targetUid, target.amount, {
-                  method: 'Auto-Refund (Stock Out)',
-                  referenceId: target.orderId,
-                  note: `Auto-refund of ₹${target.amount} for out-of-stock keys (${resolveProductName(target.productName, settings.categories, items)})`,
-                  type: 'refund',
-                  userEmail: currentUserRef.current?.email || undefined
-                });
-              }
-              setSuccessToast(`Payment received! Due to stock limit, ₹${target.amount} was refunded to your Wallet.`);
-              setTimeout(() => setSuccessToast(null), 8000);
-            }
-          } catch (e) {
-            if (targetUid) {
-              addBalanceRef.current(targetUid, target.amount, {
-                method: 'Auto-Refund (Stock Out)',
-                referenceId: target.orderId,
-                note: `Refund of ₹${target.amount} to wallet balance`,
-                type: 'refund',
-                userEmail: currentUserRef.current?.email || undefined
-              });
-            }
-            setSuccessToast(`Payment received! ₹${target.amount} was refunded to your Wallet.`);
-            setTimeout(() => setSuccessToast(null), 8000);
-          }
-        }
+        await fulfillPayment(target);
       } else if (isManual) {
-        setStatusMessage(data.message || 'Payment not yet received. If you paid, please wait a moment and tap verify again.');
-        setTimeout(() => setStatusMessage(null), 6000);
+        setStatusMessage(data.message || 'Payment is awaiting UPI confirmation. If you completed payment, please wait a few seconds and tap verify again.');
+        setTimeout(() => setStatusMessage(null), 7000);
       }
-    } catch (err) {
+    } catch (err: any) {
       if (isManual) {
-        setStatusMessage('Could not connect to payment gateway. Please retry.');
-        setTimeout(() => setStatusMessage(null), 5000);
+        setStatusMessage('Gateway verification pending. If you already paid, please tap Verify in a moment.');
+        setTimeout(() => setStatusMessage(null), 6000);
       }
     } finally {
       isCheckingRef.current = false;
       setIsChecking(false);
     }
-  }, []);
+  }, [fulfillPayment]);
 
   // Set up listeners once on mount
   useEffect(() => {
@@ -296,6 +329,16 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                {isOwner && (
+                  <button
+                    onClick={() => fulfillPayment(pending)}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold rounded-xl flex items-center gap-1 shadow-[0_0_10px_rgba(16,185,129,0.3)] transition-all cursor-pointer"
+                    title="Owner/Admin Instant Claim"
+                  >
+                    <span>⚡ Claim (Admin)</span>
+                  </button>
+                )}
+
                 <button
                   onClick={() => verifyPayment(true)}
                   disabled={isChecking}

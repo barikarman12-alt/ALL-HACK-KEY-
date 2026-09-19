@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader2, QrCode, RefreshCw } from 'lucide-react';
+import { X, Loader2, QrCode, RefreshCw, ExternalLink, Smartphone } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../lib/useAuth';
 import { useBalance } from '../store';
@@ -131,10 +131,15 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
     setQrError(false);
     setStep('processing');
     try {
+      const currentOrigin = window.location.origin;
       const res = await fetch('/api/fampay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount })
+        body: JSON.stringify({ 
+          amount,
+          origin: currentOrigin,
+          redirect_url: `${currentOrigin}/success`
+        })
       });
       
       const text = await res.text();
@@ -174,7 +179,7 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
         }
       }
       
-      if (data.order_id && data.payment_url) {
+      if (data.order_id && (data.payment_url || data.checkout_url)) {
         setOrderId(data.order_id);
         const redirectUrl = data.checkout_url || data.payment_url;
         setPaymentUrl(redirectUrl);
@@ -193,12 +198,12 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
           }));
         } catch(e) {}
         
-        // Auto redirect
-        if (redirectUrl.startsWith('http')) {
-          window.open(redirectUrl, '_blank');
-        } else {
-          window.location.href = redirectUrl;
-        }
+        // Auto open payment url safely
+        try {
+          if (redirectUrl.startsWith('http')) {
+            window.open(redirectUrl, '_blank');
+          }
+        } catch(e) {}
       } else {
         setError(data.error || data.message || 'Failed to initialize payment.');
         setStep('input');
@@ -257,21 +262,70 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
         )}
 
         {step === 'qr' && (
-          <div className="p-10 space-y-6 flex flex-col items-center text-center">
-            <Loader2 className="w-12 h-12 text-fuchsia-500 animate-spin mb-4" />
+          <div className="p-6 sm:p-8 space-y-6 flex flex-col items-center text-center">
+            <div className="w-14 h-14 bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-400 rounded-full flex items-center justify-center mx-auto shadow-[0_0_20px_rgba(224,0,255,0.25)]">
+              <Smartphone className="w-7 h-7" />
+            </div>
+
             <div>
-              <h4 className="text-2xl font-bold text-white mb-2">Redirecting...</h4>
-              <p className="text-zinc-400">Please complete your payment of <span className="font-bold text-fuchsia-400">₹{amount}</span> on the gateway.</p>
+              <h4 className="text-xl sm:text-2xl font-bold text-white mb-1">Add ₹{amount} Balance</h4>
+              <p className="text-sm text-zinc-400">Complete payment via FamPay UPI Gateway</p>
+              {orderId && (
+                <p className="text-xs text-zinc-500 font-mono mt-1">Order ID: {orderId}</p>
+              )}
             </div>
             
-            <a 
-              href={paymentUrl}
-              className="mt-6 px-6 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 font-medium rounded-xl transition-all border border-white/10 flex items-center gap-2"
-            >
-              Click here if not redirected
-            </a>
-            
+            {/* Direct Actions */}
+            <div className="w-full space-y-3">
+              {paymentUrl && paymentUrl.startsWith('http') && (
+                <a 
+                  href={paymentUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3.5 px-4 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold rounded-xl transition-all shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] flex items-center justify-center gap-2 text-sm"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open Payment Gateway (Pay Now)
+                </a>
+              )}
 
+              <a 
+                href={`upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent('ARMAN X STORE')}&am=${amount}&cu=INR`}
+                className="w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700 text-white font-medium rounded-xl border border-zinc-700 transition-all flex items-center justify-center gap-2 text-sm"
+              >
+                <Smartphone className="w-4 h-4 text-emerald-400" />
+                Pay via UPI App (GPay / PhonePe / Paytm)
+              </a>
+            </div>
+
+            {/* QR Code preview if available */}
+            {qrUrl && (
+              <div className="p-3 bg-white rounded-2xl shadow-lg border border-zinc-700 inline-block">
+                <img src={qrUrl} alt="UPI QR Code" className="w-40 h-40 object-contain rounded-lg" />
+              </div>
+            )}
+
+            {/* Polling & Manual Verify */}
+            <div className="w-full pt-2 border-t border-zinc-800 space-y-3">
+              <div className="flex items-center justify-center gap-2 text-fuchsia-400 animate-pulse text-xs">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Auto-checking payment... ({Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')})</span>
+              </div>
+
+              <button
+                onClick={() => {
+                  localStorage.setItem('paymentRedirected', 'true');
+                }}
+                className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl border border-zinc-800 transition-colors flex items-center justify-center gap-2 text-xs font-semibold cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-fuchsia-400" />
+                I Have Paid - Verify & Add Balance Now
+              </button>
+
+              <p className="text-[11px] text-zinc-500">
+                After paying in your UPI app, return here to have your wallet balance credited immediately.
+              </p>
+            </div>
           </div>
         )}
 

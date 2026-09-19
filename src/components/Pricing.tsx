@@ -1,4 +1,4 @@
-import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users } from 'lucide-react';
+import { Check, X, Minus, Plus, Loader2, Key, QrCode, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users, ExternalLink, RefreshCw, Smartphone } from 'lucide-react';
 import { useState, useEffect, useRef, SVGProps } from 'react';
 import confetti from 'canvas-confetti';
 import { FastAverageColor } from 'fast-average-color';
@@ -531,10 +531,15 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const handleProceed = async () => {
     setPaymentStep('processing');
     try {
+      const currentOrigin = window.location.origin;
       const res = await fetch('/api/fampay/create-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount: totalPrice })
+        body: JSON.stringify({ 
+          amount: totalPrice,
+          origin: currentOrigin,
+          redirect_url: `${currentOrigin}/success`
+        })
       });
       
       const text = await res.text();
@@ -600,12 +605,12 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           timestamp: Date.now()
         }));
         
-        // Auto redirect
-        if (redirectUrl.startsWith('http')) {
-          window.open(redirectUrl, '_blank');
-        } else {
-          window.location.href = redirectUrl;
-        }
+        // Auto open payment url safely
+        try {
+          if (redirectUrl.startsWith('http')) {
+            window.open(redirectUrl, '_blank');
+          }
+        } catch(e) {}
       } else {
         setPaymentError(data.error || data.message || 'Failed to initialize payment.');
         setPaymentStep('configure');
@@ -961,35 +966,78 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
             )}
 
             {paymentStep === 'qr' && (
-              <div className="p-10 space-y-6 flex flex-col items-center text-center">
-                <Loader2 className="w-12 h-12 text-fuchsia-500 animate-spin mb-4" />
-                <div>
-                  <h4 className="text-2xl font-bold text-white mb-2">Redirecting...</h4>
-                  <p className="text-zinc-400">Please complete your payment of <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{totalPrice}</span> on the gateway.</p>
+              <div className="p-6 sm:p-8 space-y-6 flex flex-col items-center text-center">
+                <div className="w-14 h-14 bg-fuchsia-500/10 border border-fuchsia-500/30 text-fuchsia-400 rounded-full flex items-center justify-center mx-auto shadow-[0_0_20px_rgba(224,0,255,0.25)]">
+                  <Smartphone className="w-7 h-7" />
                 </div>
-                
-                <a 
-                  href={paymentUrl || `upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
-                  target={paymentUrl?.startsWith('http') ? '_blank' : '_self'}
-                  rel="noopener noreferrer"
-                  className="mt-6 px-6 py-3 bg-white/5 hover:bg-white/10 text-zinc-300 font-medium rounded-xl transition-all border border-white/10 flex items-center gap-2"
-                >
-                  Click here if not redirected
-                </a>
 
-                <div className="w-full pt-4 space-y-4">
-                  <div className="flex items-center justify-center gap-2 text-fuchsia-400 mt-4 animate-pulse">
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span className="text-sm font-medium">Waiting for payment... ({Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')})</span>
+                <div>
+                  <h4 className="text-xl sm:text-2xl font-bold text-white mb-1">Complete Payment</h4>
+                  <p className="text-sm text-zinc-400">
+                    Pay <span className="font-bold text-fuchsia-400 drop-shadow-[0_0_5px_rgba(224,0,255,0.5)]">₹{totalPrice}</span> via FamPay UPI Gateway
+                  </p>
+                  {orderId && (
+                    <p className="text-xs text-zinc-500 font-mono mt-1">Order ID: {orderId}</p>
+                  )}
+                </div>
+
+                {/* Direct Action Buttons */}
+                <div className="w-full space-y-3">
+                  {paymentUrl && paymentUrl.startsWith('http') && (
+                    <a 
+                      href={paymentUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-3.5 px-4 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-semibold rounded-xl transition-all shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)] flex items-center justify-center gap-2 text-sm"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Open Payment Gateway (Pay Now)
+                    </a>
+                  )}
+
+                  <a 
+                    href={`upi://pay?pa=armanbarik@fam&pn=${encodeURIComponent(settings.siteName || 'ARMAN X STORE')}&am=${totalPrice}&cu=INR`}
+                    className="w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700 text-white font-medium rounded-xl border border-zinc-700 transition-all flex items-center justify-center gap-2 text-sm"
+                  >
+                    <Smartphone className="w-4 h-4 text-emerald-400" />
+                    Pay via UPI App (GPay / PhonePe / Paytm)
+                  </a>
+                </div>
+
+                {/* QR Code preview if available */}
+                {qrUrl && (
+                  <div className="p-3 bg-white rounded-2xl shadow-lg border border-zinc-700 inline-block">
+                    <img src={qrUrl} alt="UPI QR Code" className="w-44 h-44 object-contain rounded-lg" />
                   </div>
-                  
+                )}
+
+                {/* Payment Polling & Manual Verify */}
+                <div className="w-full pt-2 border-t border-zinc-800 space-y-3">
+                  <div className="flex items-center justify-center gap-2 text-fuchsia-400 animate-pulse text-xs sm:text-sm">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Auto-checking payment... ({Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')})</span>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('paymentRedirected', 'true');
+                      setIsVerifying(false);
+                    }}
+                    className="w-full py-2.5 px-4 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white rounded-xl border border-zinc-800 transition-colors flex items-center justify-center gap-2 text-xs font-semibold cursor-pointer"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5 text-fuchsia-400" />
+                    I Have Paid - Verify & Claim Key Now
+                  </button>
+
+                  <p className="text-[11px] text-zinc-500">
+                    After completing the payment in your UPI app, return to this screen to automatically receive your key.
+                  </p>
+
                   {paymentError && (
-                    <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-3 rounded-lg text-sm mb-4 text-center">
+                    <div className="bg-red-950/50 border border-red-500/50 text-red-400 p-2.5 rounded-lg text-xs text-center">
                       {paymentError}
                     </div>
                   )}
-
-
                 </div>
               </div>
             )}
