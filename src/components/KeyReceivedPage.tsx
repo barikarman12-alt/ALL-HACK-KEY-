@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { useInventory, resolveProductName } from '../store';
 import { useAuth } from '../lib/useAuth';
-import { InstallAppButton } from './InstallAppButton';
 
 export interface KeyReceivedData {
   keys: string[];
@@ -124,8 +123,7 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-            <InstallAppButton variant="header" siteName={settings.siteName} />
+          <div className="flex items-center gap-3">
             <button
               onClick={onBackToHome}
               className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-sm font-medium rounded-xl border border-zinc-800 transition-colors flex items-center gap-2"
@@ -192,32 +190,6 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
                 <ExternalLink className="w-4 h-4 opacity-80" />
               </a>
             </div>
-          </div>
-        </div>
-
-        {/* BONUS: INSTALL STORE APP / CREATE SHORTCUT */}
-        <div className="bg-zinc-900/80 border border-fuchsia-500/30 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-[0_0_20px_rgba(224,0,255,0.08)]">
-          <div className="flex items-center gap-3.5">
-            <div className="w-12 h-12 rounded-xl bg-fuchsia-500/10 border border-fuchsia-500/30 p-1 flex items-center justify-center flex-shrink-0">
-              <img src="/pwa-192x192.png" alt="App Icon" className="w-full h-full object-cover rounded-lg" onError={(e) => {
-                (e.target as HTMLImageElement).src = '/icon.svg';
-              }} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <span>Install {settings.siteName || 'ARMAN X STORE'} App</span>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/40 px-2 py-0.5 rounded-full">
-                  Fast 1-Tap
-                </span>
-              </h3>
-              <p className="text-xs text-zinc-400">
-                Apne mobile home screen par app icon add karein taaki direct 1-tap me access mile!
-              </p>
-            </div>
-          </div>
-
-          <div className="flex-shrink-0 w-full sm:w-auto">
-            <InstallAppButton variant="card" siteName={settings.siteName} className="w-full sm:w-auto !py-2.5 !px-4" />
           </div>
         </div>
 

@@ -1,94 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner() {
-      return isSignedIn() && (
-        request.auth.token.email == 'barikarman12@gmail.com' ||
-        (request.auth.token.email != null && request.auth.token.email.matches('(?i).*barikarman12@gmail\\.com.*'))
-      );
-    }
-
-    function isSelf(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    // Default deny all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Users collection
     match /users/{userId} {
-      // User can read their own profile; Owner can read all profiles
-      allow read: if isSignedIn() && (isSelf(userId) || isOwner());
-      
-      // User can create their initial profile document without setting balance or admin role
-      allow create: if isSignedIn() && isSelf(userId) &&
-        (!('balance' in request.resource.data) || request.resource.data.balance == 0) &&
-        (!('role' in request.resource.data) || request.resource.data.role == 'customer');
-
-      // Owner can update any user profile (including balance, role, etc.)
-      // Normal user CANNOT modify sensitive fields: balance, role, status
-      allow update: if isOwner() || (
-        isSignedIn() && isSelf(userId) &&
-        !request.resource.data.diff(resource.data).affectedKeys().hasAny(['balance', 'role', 'status'])
-      );
-
-      allow delete: if isOwner();
+      // Anyone authenticated can read user profile
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
-
-    // Global Application Data (Inventory, Settings, Balances Registry)
     match /appData/{document=**} {
-      // Anyone can read store inventory, settings, and public catalog
-      allow read: if true;
-      // Only the Owner can modify app data, store settings, or inventory
-      allow write: if isOwner();
+      // Anyone can read appData settings/coupons/inventory
+      allow read, write: if true;
     }
-
-    // Coupons Collection
     match /coupons/{couponId} {
-      // Anyone can read coupons to validate promo codes
-      allow read: if true;
-      // ONLY the Owner can create, edit, or delete coupons
-      allow write: if isOwner();
+      // Anyone can read and update coupons
+      allow read, write: if true;
     }
-
-    // Purchases Collection
     match /purchases/{purchaseId} {
-      // Users can only read their own purchases; Owner can read all purchases
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isOwner());
-      // Users can record a purchase with their own UID
-      allow create: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isOwner());
-      // Only owner can update/delete purchase records
-      allow update, delete: if isOwner();
+      // Users can read their own purchases, owner can read all purchases
+      allow read: if request.auth != null;
+      // Users can write a purchase
+      allow write: if request.auth != null;
     }
-
-    // Wallet Transactions
     match /walletTransactions/{transactionId} {
-      // Users can read their own transactions; Owner can read all
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isOwner());
-      // Only owner can record/update wallet transactions
-      allow create, update, delete: if isOwner();
+      // Users can read and write transactions
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
-
-    // Notifications
     match /notifications/{notificationId} {
-      // Users can read their own notifications; Owner can read all
-      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isOwner());
-      // Users can only mark their own notifications as read
-      allow update: if isOwner() || (
-        isSignedIn() && resource.data.userId == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read'])
-      );
-      allow create, delete: if isOwner() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      // Users can read and write notifications
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
   }
 }
-
 

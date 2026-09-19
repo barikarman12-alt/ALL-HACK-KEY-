@@ -98,11 +98,7 @@ export interface ProductKey {
   keys: string[];
 }
 
-const defaultInventory: ProductKey[] = [
-  { category: 'bgmi_mod', value: 'bgmi_1d', label: '1 Day Key', price: 99, stock: 50, keys: [] },
-  { category: 'bgmi_mod', value: 'bgmi_7d', label: '7 Days Key', price: 349, stock: 50, keys: [] },
-  { category: 'bgmi_mod', value: 'bgmi_30d', label: '30 Days Key', price: 899, stock: 50, keys: [] }
-];
+const defaultInventory: ProductKey[] = [];
 
 export interface ProductCategory {
   id: string;
@@ -211,15 +207,7 @@ const defaultSettings: ProductSettings = {
   nonRootLogoUrl: '',
   rootName: '',
   rootLogoUrl: '',
-  categories: [
-    {
-      id: 'bgmi_mod',
-      name: 'BGMI VIP KEY',
-      logoUrl: '/logo.png',
-      theme: 'dark',
-      popular: true
-    }
-  ]
+  categories: []
 };
 
 const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettings; balances: Record<string, number> } => {
@@ -230,15 +218,13 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
     const saved = localStorage.getItem('appDataGlobal');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed.inventory && Array.isArray(parsed.inventory) && parsed.inventory.length > 0) {
+      if (parsed.inventory && Array.isArray(parsed.inventory)) {
         inv = parsed.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
       }
       if (parsed.settings) {
         sett = { ...defaultSettings, ...parsed.settings };
-        if (sett.categories && Array.isArray(sett.categories) && sett.categories.length > 0) {
+        if (sett.categories && Array.isArray(sett.categories)) {
           sett.categories = sett.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
-        } else {
-          sett.categories = defaultSettings.categories;
         }
       }
       if (parsed.balances) {
@@ -246,13 +232,6 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
       }
     }
   } catch (e) {}
-  
-  if (!sett.categories || sett.categories.length === 0) {
-    sett.categories = defaultSettings.categories;
-  }
-  if (!inv || inv.length === 0) {
-    inv = defaultInventory;
-  }
   return { inventory: inv, settings: sett, balances: bals };
 };
 
@@ -428,10 +407,13 @@ const syncNotificationsToStorage = async () => {
 
 // Initialization and Realtime Listeners
 const initializeData = async () => {
+  if (initialized && settings.categories && settings.categories.length > 0) {
+    // Already fast-booted from cache, now refresh in parallel
+  }
   initialized = true;
 
   try {
-    // 1. Immediately load any locally cached coupons
+    // 1. First ensure any locally created coupons are loaded
     const localSavedCoupons = localStorage.getItem('appDataCoupons');
     if (localSavedCoupons) {
       try {
@@ -442,18 +424,32 @@ const initializeData = async () => {
       } catch (e) {}
     }
 
-    // 2. High-speed Priority 1: Fetch Global Store & Coupons for instant product rendering
-    const [globalRes, couponsRes] = await Promise.allSettled([
+    // Parallel fetch from Firestore
+    const [globalRes, couponsRes, purchasesDocRes, purchasesColRes, usersDocRes, usersColRes, txRes, notifRes] = await Promise.allSettled([
       getDoc(doc(db, 'appData', 'global')),
-      getDoc(doc(db, 'appData', 'coupons'))
+      getDoc(doc(db, 'appData', 'coupons')),
+      getDoc(doc(db, 'appData', 'purchases')),
+      getDocs(collection(db, 'purchases')),
+      getDoc(doc(db, 'appData', 'usersRegistry')),
+      getDocs(collection(db, 'users')),
+      getDoc(doc(db, 'appData', 'walletTransactions')),
+      getDoc(doc(db, 'appData', 'notifications'))
     ]);
 
-    // Fast handle Global (Products, Categories, Settings, Balances)
+    // Handle Coupons
+    if (couponsRes.status === 'fulfilled' && couponsRes.value.exists()) {
+      const cData = couponsRes.value.data();
+      if (Array.isArray(cData.coupons)) {
+        coupons = mergeCoupons(coupons, cData.coupons);
+      }
+    }
+
+    // Handle Global (Inventory, Settings, Balances)
     if (globalRes.status === 'fulfilled' && globalRes.value.exists()) {
       const data = globalRes.value.data();
       if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
       if (data.settings) {
-        settings = { ...settings, ...data.settings };
+        settings = data.settings;
         if (settings.categories) {
           settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
         }
@@ -464,157 +460,147 @@ const initializeData = async () => {
       if (data.coupons && Array.isArray(data.coupons)) {
         coupons = mergeCoupons(coupons, data.coupons);
       }
-      try {
-        localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
-      } catch(e) {}
+      localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
     }
 
-    // Fast handle Coupons
-    if (couponsRes.status === 'fulfilled' && couponsRes.value.exists()) {
-      const cData = couponsRes.value.data();
-      if (Array.isArray(cData.coupons)) {
-        coupons = mergeCoupons(coupons, cData.coupons);
-      }
-      try {
-        localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
-      } catch(e) {}
-    }
+    // Always cache the merged coupons to local storage
+    localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
 
-    // Immediately trigger UI update so products appear instantaneously!
-    store.notify();
-
-    // Security: Purge any legacy or tampered client-side user_balance_* keys from localStorage
+    // Hydrate any local user balances from localStorage
     try {
-      const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
         const key = localStorage.key(i);
         if (key && key.startsWith('user_balance_')) {
-          keysToRemove.push(key);
+          const uid = key.replace('user_balance_', '');
+          const val = parseFloat(localStorage.getItem(key) || '0');
+          if (!isNaN(val) && val > (balances[uid] || 0)) {
+            balances[uid] = val;
+          }
         }
       }
-      keysToRemove.forEach(k => localStorage.removeItem(k));
     } catch(e) {}
 
-    // 3. Background Non-Blocking Fetch for secondary data (Purchases, Users, Transactions, Notifications)
-    Promise.allSettled([
-      getDoc(doc(db, 'appData', 'purchases')),
-      getDocs(collection(db, 'purchases')),
-      getDoc(doc(db, 'appData', 'usersRegistry')),
-      getDocs(collection(db, 'users')),
-      getDoc(doc(db, 'appData', 'walletTransactions')),
-      getDoc(doc(db, 'appData', 'notifications'))
-    ]).then(([purchasesDocRes, purchasesColRes, usersDocRes, usersColRes, txRes, notifRes]) => {
-      // Handle Purchases
-      if (purchasesDocRes.status === 'fulfilled' && purchasesDocRes.value.exists()) {
-        const data = purchasesDocRes.value.data();
-        if (data.purchases) purchases = data.purchases;
-      }
-      if (purchasesColRes.status === 'fulfilled' && !purchasesColRes.value.empty) {
-        const remoteList: PurchaseRecord[] = [];
-        purchasesColRes.value.forEach(d => remoteList.push(d.data() as PurchaseRecord));
-        const merged = new Map<string, PurchaseRecord>();
-        purchases.forEach(p => merged.set(p.id, p));
-        remoteList.forEach(p => merged.set(p.id, p));
-        purchases = Array.from(merged.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      }
+    // Handle Purchases
+    if (purchasesDocRes.status === 'fulfilled' && purchasesDocRes.value.exists()) {
+      const data = purchasesDocRes.value.data();
+      if (data.purchases) purchases = data.purchases;
+    }
+    if (purchasesColRes.status === 'fulfilled' && !purchasesColRes.value.empty) {
+      const remoteList: PurchaseRecord[] = [];
+      purchasesColRes.value.forEach(d => remoteList.push(d.data() as PurchaseRecord));
+      const merged = new Map<string, PurchaseRecord>();
+      purchases.forEach(p => merged.set(p.id, p));
+      remoteList.forEach(p => merged.set(p.id, p));
+      purchases = Array.from(merged.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
 
-      // Handle Registered Users
-      if (usersDocRes.status === 'fulfilled' && usersDocRes.value.exists()) {
-        const uData = usersDocRes.value.data();
-        if (Array.isArray(uData.users)) {
-          const map = new Map<string, UserProfile>();
-          registeredUsers.forEach(u => map.set(u.uid, u));
-          uData.users.forEach((u: UserProfile) => {
-            if (u && u.uid) map.set(u.uid, { ...map.get(u.uid), ...u });
-          });
-          registeredUsers = Array.from(map.values());
-        }
-      }
-      if (usersColRes.status === 'fulfilled' && !usersColRes.value.empty) {
+    // Handle Registered Users
+    if (usersDocRes.status === 'fulfilled' && usersDocRes.value.exists()) {
+      const uData = usersDocRes.value.data();
+      if (Array.isArray(uData.users)) {
         const map = new Map<string, UserProfile>();
         registeredUsers.forEach(u => map.set(u.uid, u));
-        usersColRes.value.forEach(d => {
-          const u = d.data();
-          map.set(d.id, {
-            uid: d.id,
-            email: u.email || '',
-            displayName: u.displayName || u.email?.split('@')[0] || 'User',
-            customId: u.customId || u.email?.split('@')[0] || d.id.substring(0, 8),
-            photoURL: u.photoURL || '',
-            role: u.role || (u.email?.includes('barikarman') ? 'owner' : 'customer'),
-            createdAt: u.createdAt || '',
-            lastLoginAt: u.lastLoginAt || '',
-            status: u.status || 'active',
-            phone: u.phone || '',
-            ...map.get(d.id)
-          });
+        uData.users.forEach((u: UserProfile) => {
+          if (u && u.uid) map.set(u.uid, { ...map.get(u.uid), ...u });
         });
         registeredUsers = Array.from(map.values());
       }
+    }
+    if (usersColRes.status === 'fulfilled' && !usersColRes.value.empty) {
+      const map = new Map<string, UserProfile>();
+      registeredUsers.forEach(u => map.set(u.uid, u));
+      usersColRes.value.forEach(d => {
+        const u = d.data();
+        map.set(d.id, {
+          uid: d.id,
+          email: u.email || '',
+          displayName: u.displayName || u.email?.split('@')[0] || 'User',
+          customId: u.customId || u.email?.split('@')[0] || d.id.substring(0, 8),
+          photoURL: u.photoURL || '',
+          role: u.role || (u.email?.includes('barikarman') ? 'owner' : 'customer'),
+          createdAt: u.createdAt || '',
+          lastLoginAt: u.lastLoginAt || '',
+          status: u.status || 'active',
+          phone: u.phone || '',
+          ...map.get(d.id)
+        });
+      });
+      registeredUsers = Array.from(map.values());
+    }
 
-      // Handle Wallet Transactions
-      if (txRes.status === 'fulfilled' && txRes.value.exists()) {
-        const tData = txRes.value.data();
-        if (Array.isArray(tData.transactions)) {
-          const map = new Map<string, WalletTransaction>();
-          walletTransactions.forEach(t => map.set(t.id, t));
-          tData.transactions.forEach((t: WalletTransaction) => {
-            if (t && t.id) map.set(t.id, t);
-          });
-          walletTransactions = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
+    // Handle Wallet Transactions
+    if (txRes.status === 'fulfilled' && txRes.value.exists()) {
+      const tData = txRes.value.data();
+      if (Array.isArray(tData.transactions)) {
+        const map = new Map<string, WalletTransaction>();
+        walletTransactions.forEach(t => map.set(t.id, t));
+        tData.transactions.forEach((t: WalletTransaction) => {
+          if (t && t.id) map.set(t.id, t);
+        });
+        walletTransactions = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
+    }
 
-      // Handle Notifications
-      if (notifRes.status === 'fulfilled' && notifRes.value.exists()) {
-        const nData = notifRes.value.data();
-        if (Array.isArray(nData.notifications)) {
-          const map = new Map<string, UserNotification>();
-          userNotifications.forEach(n => map.set(n.id, n));
-          nData.notifications.forEach((n: UserNotification) => {
-            if (n && n.id) map.set(n.id, n);
-          });
-          userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
+    // Handle Notifications
+    if (notifRes.status === 'fulfilled' && notifRes.value.exists()) {
+      const nData = notifRes.value.data();
+      if (Array.isArray(nData.notifications)) {
+        const map = new Map<string, UserNotification>();
+        userNotifications.forEach(n => map.set(n.id, n));
+        nData.notifications.forEach((n: UserNotification) => {
+          if (n && n.id) map.set(n.id, n);
+        });
+        userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
+    }
+    
+    store.notify();
 
-      store.notify();
-    }).catch(() => {});
-
-    // Listen to real-time changes with safe error handling
+    // Listen to real-time changes
     onSnapshot(doc(db, 'appData', 'coupons'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.coupons && Array.isArray(data.coupons)) {
           coupons = mergeCoupons(coupons, data.coupons);
-          try { localStorage.setItem('appDataCoupons', JSON.stringify(coupons)); } catch(e) {}
+          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
           store.notify();
         }
       }
-    }, (err) => console.warn('Coupons realtime listener info:', err.message));
+    });
 
     onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
         if (data.settings) {
-          settings = { ...defaultSettings, ...data.settings };
-          if (settings.categories && settings.categories.length > 0) {
+          settings = data.settings;
+          if (settings.categories) {
             settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
-          } else {
-            settings.categories = defaultSettings.categories;
           }
         }
         if (data.coupons && Array.isArray(data.coupons)) {
           coupons = mergeCoupons(coupons, data.coupons);
-          try { localStorage.setItem('appDataCoupons', JSON.stringify(coupons)); } catch(e) {}
+          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
         }
         if (data.balances) {
           balances = { ...balances, ...data.balances };
+          // Preserve local storage user balances
+          try {
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key && key.startsWith('user_balance_')) {
+                const uid = key.replace('user_balance_', '');
+                const val = parseFloat(localStorage.getItem(key) || '0');
+                if (!isNaN(val) && val > (balances[uid] || 0)) {
+                  balances[uid] = val;
+                }
+              }
+            }
+          } catch(e) {}
         }
         store.notify();
       }
-    }, (err) => console.warn('Global realtime listener info:', err.message));
+    });
 
     onSnapshot(doc(db, 'appData', 'purchases'), (docSnap) => {
       if (docSnap.exists()) {
@@ -622,7 +608,7 @@ const initializeData = async () => {
         if (data.purchases) purchases = data.purchases;
         store.notify();
       }
-    }, (err) => console.warn('Purchases realtime listener info:', err.message));
+    });
 
     onSnapshot(doc(db, 'appData', 'usersRegistry'), (docSnap) => {
       if (docSnap.exists()) {
@@ -637,7 +623,7 @@ const initializeData = async () => {
           store.notify();
         }
       }
-    }, (err) => console.warn('UsersRegistry realtime listener info:', err.message));
+    });
 
     onSnapshot(doc(db, 'appData', 'walletTransactions'), (docSnap) => {
       if (docSnap.exists()) {
@@ -652,7 +638,7 @@ const initializeData = async () => {
           store.notify();
         }
       }
-    }, (err) => console.warn('Transactions realtime listener info:', err.message));
+    });
 
     onSnapshot(doc(db, 'appData', 'notifications'), (docSnap) => {
       if (docSnap.exists()) {
@@ -667,7 +653,7 @@ const initializeData = async () => {
           store.notify();
         }
       }
-    }, (err) => console.warn('Notifications realtime listener info:', err.message));
+    });
 
   } catch (e) {
     console.warn("Could not load from Firestore (expected if unauthenticated). Falling back to local storage:", e);
@@ -706,9 +692,12 @@ onAuthStateChanged(auth, (user) => {
         if (snap.exists()) {
           const data = snap.data();
           if (typeof data.balance === 'number') {
-            const current = balances[user.uid];
+            const current = store.getBalance(user.uid);
             if (data.balance !== current) {
               balances[user.uid] = data.balance;
+              try {
+                localStorage.setItem('user_balance_' + user.uid, data.balance.toString());
+              } catch(e) {}
               store.notify();
             }
           }
@@ -970,7 +959,17 @@ export const store = {
 
   getBalance: (userId: string) => {
     if (!userId) return 0;
-    if (typeof balances[userId] === 'number') return Math.max(0, balances[userId]);
+    if (typeof balances[userId] === 'number') return balances[userId];
+    try {
+      const saved = localStorage.getItem('user_balance_' + userId);
+      if (saved !== null) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed)) {
+          balances[userId] = parsed;
+          return parsed;
+        }
+      }
+    } catch(e) {}
     return 0;
   },
   
@@ -990,7 +989,8 @@ export const store = {
     const newBal = current + amount;
     balances[userId] = newBal;
     try {
-      if (auth.currentUser?.email?.includes('barikarman')) {
+      localStorage.setItem('user_balance_' + userId, newBal.toString());
+      if (auth.currentUser?.uid === userId || auth.currentUser?.email?.includes('barikarman')) {
         setDoc(doc(db, 'users', userId), { balance: newBal, lastUpdated: new Date().toISOString() }, { merge: true }).catch(() => {});
       }
     } catch(e) {}
@@ -1043,7 +1043,8 @@ export const store = {
       const newBal = current - amount;
       balances[userId] = newBal;
       try {
-        if (auth.currentUser?.email?.includes('barikarman')) {
+        localStorage.setItem('user_balance_' + userId, newBal.toString());
+        if (auth.currentUser?.uid === userId) {
           setDoc(doc(db, 'users', userId), { balance: newBal, lastUpdated: new Date().toISOString() }, { merge: true }).catch(() => {});
         }
       } catch(e) {}
@@ -1324,6 +1325,7 @@ export const store = {
     const diff = safeBal - oldBal;
     balances[userId] = safeBal;
     try {
+      localStorage.setItem('user_balance_' + userId, safeBal.toString());
       await setDoc(doc(db, 'users', userId), { balance: safeBal, lastBalanceUpdate: new Date().toISOString(), balanceNote: note || '' }, { merge: true }).catch(() => {});
     } catch (e) {}
     syncToStorage();

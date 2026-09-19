@@ -9,54 +9,29 @@ import { PurchaseHistoryModal } from './components/PurchaseHistoryModal';
 import { Login } from './components/Login';
 import { KeyReceivedPage, KeyReceivedData } from './components/KeyReceivedPage';
 import { PaymentWatcher } from './components/PaymentWatcher';
-import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { useAuth } from './lib/useAuth';
-import { useInventory } from './store';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState<'home' | 'dashboard' | 'login' | 'key-received'>('home');
   const [showPurchases, setShowPurchases] = useState(false);
   const [receivedKeyData, setReceivedKeyData] = useState<KeyReceivedData | null>(null);
   const { currentUser, loading } = useAuth();
-  const { settings } = useInventory();
   
   useEffect(() => {
-    // Check if user was redirected back from payment gateway
-    try {
-      const url = new URL(window.location.href);
-      const path = url.pathname;
-      const orderId = url.searchParams.get('order_id') || url.searchParams.get('orderId') || url.searchParams.get('client_txn_id') || url.searchParams.get('txn_id');
-      const status = (url.searchParams.get('status') || url.searchParams.get('payment_status') || '').toLowerCase();
-      const isSuccessRoute = path === '/success' || path.startsWith('/success') || path === '/payment-success';
-
-      if (isSuccessRoute || orderId || status === 'success') {
-        localStorage.setItem('paymentRedirected', 'true');
-        
-        // If orderId is in URL but not in localStorage (e.g. redirected to new window/browser)
-        if (orderId) {
-          const existingPending = localStorage.getItem('pendingPayment');
-          if (!existingPending) {
-            localStorage.setItem('pendingPayment', JSON.stringify({
-              orderId: orderId,
-              type: 'keys',
-              amount: 0,
-              userId: currentUser?.uid || '',
-              timestamp: Date.now()
-            }));
-          }
-        }
-
-        // Clean up URL without reloading the page
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState({}, document.title, '/');
-        }
+    // If user lands on /success or has a pending payment, make sure they are on the home page 
+    // to view the pricing component's modal logic
+    const path = window.location.pathname;
+    if (path === '/success' || localStorage.getItem('pendingPayment')) {
+      setCurrentPage('home');
+      
+      // Clean up the URL if it's just /success
+      if (path === '/success') {
+         localStorage.setItem('paymentRedirected', 'true');
+         window.history.replaceState({}, document.title, '/');
+         window.history.pushState({ paymentSuccess: true }, document.title, '/');
       }
-
-      if (isSuccessRoute || localStorage.getItem('pendingPayment')) {
-        setCurrentPage('home');
-      }
-    } catch(e) {}
-  }, [currentUser]);
+    }
+  }, []);
   
   const isOwner = currentUser?.email?.includes('barikarman') || ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || currentUser?.customId?.includes('barikarman');
 
@@ -109,7 +84,6 @@ export default function App() {
       {(currentPage === 'home' || currentPage === 'key-received' || (!isOwner && currentPage === 'dashboard')) && <Footer />}
       <SupportChat />
       <PaymentWatcher onKeyReceived={handlePurchaseSuccess} />
-      <PWAInstallBanner siteName={settings.siteName} />
       {showPurchases && (
         <PurchaseHistoryModal onClose={() => setShowPurchases(false)} />
       )}
