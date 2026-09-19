@@ -50,19 +50,32 @@ const playSuccessSound = () => {
   }
 };
 
+const colorCache: Record<string, string> = {};
+
 const ProductCard = ({ category, pricingOptions, openPurchaseModal, fallbackColor }: any) => {
-  const [accentColor, setAccentColor] = useState<string>(fallbackColor);
+  const [accentColor, setAccentColor] = useState<string>(() => {
+    if (category.logoUrl && colorCache[category.logoUrl]) {
+      return colorCache[category.logoUrl];
+    }
+    return fallbackColor;
+  });
 
   useEffect(() => {
+    if (!category.logoUrl) return;
+    if (colorCache[category.logoUrl]) {
+      setAccentColor(colorCache[category.logoUrl]);
+      return;
+    }
     const fac = new FastAverageColor();
     fac.getColorAsync(category.logoUrl)
       .then(color => {
         if (color && color.hex) {
+          colorCache[category.logoUrl] = color.hex;
           setAccentColor(color.hex);
         }
       })
-      .catch(e => {
-        console.warn("Could not extract color for", category.name, e);
+      .catch(() => {
+        // Fallback color is already default
       });
   }, [category.logoUrl]);
 
@@ -626,7 +639,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           </div>
         </div>
 
-        {!isInitialized ? (
+        {(!isInitialized && filteredCategories.length === 0) ? (
           <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
             <Loader2 className="w-12 h-12 animate-spin text-fuchsia-500 mb-4" />
             <p className="text-xl font-medium">Loading store...</p>

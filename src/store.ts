@@ -210,6 +210,75 @@ const defaultSettings: ProductSettings = {
   categories: []
 };
 
+const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettings; balances: Record<string, number> } => {
+  let inv = defaultInventory;
+  let sett = defaultSettings;
+  let bals: Record<string, number> = {};
+  try {
+    const saved = localStorage.getItem('appDataGlobal');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed.inventory && Array.isArray(parsed.inventory)) {
+        inv = parsed.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
+      }
+      if (parsed.settings) {
+        sett = { ...defaultSettings, ...parsed.settings };
+        if (sett.categories && Array.isArray(sett.categories)) {
+          sett.categories = sett.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+        }
+      }
+      if (parsed.balances) {
+        bals = parsed.balances;
+      }
+    }
+  } catch (e) {}
+  return { inventory: inv, settings: sett, balances: bals };
+};
+
+const loadInitialPurchases = (): PurchaseRecord[] => {
+  try {
+    const saved = localStorage.getItem('appDataPurchases');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
+const loadInitialUsers = (): UserProfile[] => {
+  try {
+    const saved = localStorage.getItem('appDataUsersRegistry');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
+const loadInitialTransactions = (): WalletTransaction[] => {
+  try {
+    const saved = localStorage.getItem('appDataWalletTransactions');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
+const loadInitialNotifications = (): UserNotification[] => {
+  try {
+    const saved = localStorage.getItem('appDataNotifications');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
 const loadInitialCoupons = (): Coupon[] => {
   try {
     const dedicated = localStorage.getItem('appDataCoupons');
@@ -245,17 +314,18 @@ const mergeCoupons = (baseList: Coupon[], incomingList: Coupon[]): Coupon[] => {
   return Array.from(map.values());
 };
 
-let inventory: ProductKey[] = defaultInventory;
-let settings: ProductSettings = defaultSettings;
-let purchases: PurchaseRecord[] = [];
-let balances: Record<string, number> = {};
+const initialGlobal = loadInitialGlobal();
+let inventory: ProductKey[] = initialGlobal.inventory;
+let settings: ProductSettings = initialGlobal.settings;
+let purchases: PurchaseRecord[] = loadInitialPurchases();
+let balances: Record<string, number> = initialGlobal.balances;
 let coupons: Coupon[] = loadInitialCoupons();
-let registeredUsers: UserProfile[] = [];
-let walletTransactions: WalletTransaction[] = [];
-let userNotifications: UserNotification[] = [];
+let registeredUsers: UserProfile[] = loadInitialUsers();
+let walletTransactions: WalletTransaction[] = loadInitialTransactions();
+let userNotifications: UserNotification[] = loadInitialNotifications();
 
 const listeners = new Set<() => void>();
-let initialized = false;
+let initialized = (settings.categories && settings.categories.length > 0);
 
 // Sync functions
 const syncCouponsToStorage = async () => {
@@ -337,7 +407,9 @@ const syncNotificationsToStorage = async () => {
 
 // Initialization and Realtime Listeners
 const initializeData = async () => {
-  if (initialized) return;
+  if (initialized && settings.categories && settings.categories.length > 0) {
+    // Already fast-booted from cache, now refresh in parallel
+  }
   initialized = true;
 
   try {
@@ -352,22 +424,29 @@ const initializeData = async () => {
       } catch (e) {}
     }
 
-    // 2. Fetch coupons from dedicated doc appData/coupons
-    try {
-      const cSnap = await getDoc(doc(db, 'appData', 'coupons'));
-      if (cSnap.exists()) {
-        const cData = cSnap.data();
-        if (Array.isArray(cData.coupons)) {
-          coupons = mergeCoupons(coupons, cData.coupons);
-        }
+    // Parallel fetch from Firestore
+    const [globalRes, couponsRes, purchasesDocRes, purchasesColRes, usersDocRes, usersColRes, txRes, notifRes] = await Promise.allSettled([
+      getDoc(doc(db, 'appData', 'global')),
+      getDoc(doc(db, 'appData', 'coupons')),
+      getDoc(doc(db, 'appData', 'purchases')),
+      getDocs(collection(db, 'purchases')),
+      getDoc(doc(db, 'appData', 'usersRegistry')),
+      getDocs(collection(db, 'users')),
+      getDoc(doc(db, 'appData', 'walletTransactions')),
+      getDoc(doc(db, 'appData', 'notifications'))
+    ]);
+
+    // Handle Coupons
+    if (couponsRes.status === 'fulfilled' && couponsRes.value.exists()) {
+      const cData = couponsRes.value.data();
+      if (Array.isArray(cData.coupons)) {
+        coupons = mergeCoupons(coupons, cData.coupons);
       }
-    } catch (e) {}
+    }
 
-    const globalDoc = await getDoc(doc(db, 'appData', 'global'));
-    const purchasesDoc = await getDoc(doc(db, 'appData', 'purchases'));
-
-    if (globalDoc.exists()) {
-      const data = globalDoc.data();
+    // Handle Global (Inventory, Settings, Balances)
+    if (globalRes.status === 'fulfilled' && globalRes.value.exists()) {
+      const data = globalRes.value.data();
       if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
       if (data.settings) {
         settings = data.settings;
@@ -381,24 +460,7 @@ const initializeData = async () => {
       if (data.coupons && Array.isArray(data.coupons)) {
         coupons = mergeCoupons(coupons, data.coupons);
       }
-    } else {
-      // First time? Load from localStorage if any, then sync up to Firestore
-      const savedGlobal = localStorage.getItem('appDataGlobal');
-      if (savedGlobal) {
-        const data = JSON.parse(savedGlobal);
-        if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
-        if (data.settings) {
-          settings = data.settings;
-          if (settings.categories) {
-            settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
-          }
-        }
-        if (data.balances) balances = { ...balances, ...data.balances };
-        if (data.coupons && Array.isArray(data.coupons)) coupons = mergeCoupons(coupons, data.coupons);
-      }
-      if (auth.currentUser) {
-        await syncToStorage();
-      }
+      localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
     }
 
     // Always cache the merged coupons to local storage
@@ -418,138 +480,79 @@ const initializeData = async () => {
       }
     } catch(e) {}
 
-    if (purchasesDoc.exists()) {
-      const data = purchasesDoc.data();
+    // Handle Purchases
+    if (purchasesDocRes.status === 'fulfilled' && purchasesDocRes.value.exists()) {
+      const data = purchasesDocRes.value.data();
       if (data.purchases) purchases = data.purchases;
-    } else {
-      const savedPurchases = localStorage.getItem('appDataPurchases');
-      if (savedPurchases) {
-        purchases = JSON.parse(savedPurchases);
-      }
-      if (auth.currentUser) {
-        await syncPurchasesToStorage();
-      }
+    }
+    if (purchasesColRes.status === 'fulfilled' && !purchasesColRes.value.empty) {
+      const remoteList: PurchaseRecord[] = [];
+      purchasesColRes.value.forEach(d => remoteList.push(d.data() as PurchaseRecord));
+      const merged = new Map<string, PurchaseRecord>();
+      purchases.forEach(p => merged.set(p.id, p));
+      remoteList.forEach(p => merged.set(p.id, p));
+      purchases = Array.from(merged.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     }
 
-    // Also attempt loading distinct purchases collection if available
-    try {
-      const pSnap = await getDocs(collection(db, 'purchases'));
-      if (!pSnap.empty) {
-        const remoteList: PurchaseRecord[] = [];
-        pSnap.forEach(d => remoteList.push(d.data() as PurchaseRecord));
-        const merged = new Map<string, PurchaseRecord>();
-        purchases.forEach(p => merged.set(p.id, p));
-        remoteList.forEach(p => merged.set(p.id, p));
-        purchases = Array.from(merged.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-      }
-    } catch (err) {}
-
-    // Load registered users from localStorage cache
-    try {
-      const savedUsers = localStorage.getItem('appDataUsersRegistry');
-      if (savedUsers) {
-        const parsed = JSON.parse(savedUsers);
-        if (Array.isArray(parsed)) {
-          registeredUsers = parsed;
-        }
-      }
-    } catch (err) {}
-
-    // Load registered users from appData/usersRegistry
-    try {
-      const uSnap = await getDoc(doc(db, 'appData', 'usersRegistry'));
-      if (uSnap.exists()) {
-        const uData = uSnap.data();
-        if (Array.isArray(uData.users)) {
-          const map = new Map<string, UserProfile>();
-          registeredUsers.forEach(u => map.set(u.uid, u));
-          uData.users.forEach((u: UserProfile) => {
-            if (u && u.uid) map.set(u.uid, { ...map.get(u.uid), ...u });
-          });
-          registeredUsers = Array.from(map.values());
-        }
-      }
-    } catch (err) {}
-
-    // Also attempt loading from users collection if accessible
-    try {
-      const usersColSnap = await getDocs(collection(db, 'users'));
-      if (!usersColSnap.empty) {
+    // Handle Registered Users
+    if (usersDocRes.status === 'fulfilled' && usersDocRes.value.exists()) {
+      const uData = usersDocRes.value.data();
+      if (Array.isArray(uData.users)) {
         const map = new Map<string, UserProfile>();
         registeredUsers.forEach(u => map.set(u.uid, u));
-        usersColSnap.forEach(d => {
-          const u = d.data();
-          map.set(d.id, {
-            uid: d.id,
-            email: u.email || '',
-            displayName: u.displayName || u.email?.split('@')[0] || 'User',
-            customId: u.customId || u.email?.split('@')[0] || d.id.substring(0, 8),
-            photoURL: u.photoURL || '',
-            role: u.role || (u.email?.includes('barikarman') ? 'owner' : 'customer'),
-            createdAt: u.createdAt || '',
-            lastLoginAt: u.lastLoginAt || '',
-            status: u.status || 'active',
-            phone: u.phone || '',
-            ...map.get(d.id)
-          });
+        uData.users.forEach((u: UserProfile) => {
+          if (u && u.uid) map.set(u.uid, { ...map.get(u.uid), ...u });
         });
         registeredUsers = Array.from(map.values());
       }
-    } catch (err) {}
+    }
+    if (usersColRes.status === 'fulfilled' && !usersColRes.value.empty) {
+      const map = new Map<string, UserProfile>();
+      registeredUsers.forEach(u => map.set(u.uid, u));
+      usersColRes.value.forEach(d => {
+        const u = d.data();
+        map.set(d.id, {
+          uid: d.id,
+          email: u.email || '',
+          displayName: u.displayName || u.email?.split('@')[0] || 'User',
+          customId: u.customId || u.email?.split('@')[0] || d.id.substring(0, 8),
+          photoURL: u.photoURL || '',
+          role: u.role || (u.email?.includes('barikarman') ? 'owner' : 'customer'),
+          createdAt: u.createdAt || '',
+          lastLoginAt: u.lastLoginAt || '',
+          status: u.status || 'active',
+          phone: u.phone || '',
+          ...map.get(d.id)
+        });
+      });
+      registeredUsers = Array.from(map.values());
+    }
 
-    // Load wallet transactions from localStorage
-    try {
-      const savedTx = localStorage.getItem('appDataWalletTransactions');
-      if (savedTx) {
-        const parsedTx = JSON.parse(savedTx);
-        if (Array.isArray(parsedTx)) {
-          walletTransactions = parsedTx;
-        }
+    // Handle Wallet Transactions
+    if (txRes.status === 'fulfilled' && txRes.value.exists()) {
+      const tData = txRes.value.data();
+      if (Array.isArray(tData.transactions)) {
+        const map = new Map<string, WalletTransaction>();
+        walletTransactions.forEach(t => map.set(t.id, t));
+        tData.transactions.forEach((t: WalletTransaction) => {
+          if (t && t.id) map.set(t.id, t);
+        });
+        walletTransactions = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
-    } catch (err) {}
+    }
 
-    // Load wallet transactions from Firestore appData/walletTransactions
-    try {
-      const txSnap = await getDoc(doc(db, 'appData', 'walletTransactions'));
-      if (txSnap.exists()) {
-        const tData = txSnap.data();
-        if (Array.isArray(tData.transactions)) {
-          const map = new Map<string, WalletTransaction>();
-          walletTransactions.forEach(t => map.set(t.id, t));
-          tData.transactions.forEach((t: WalletTransaction) => {
-            if (t && t.id) map.set(t.id, t);
-          });
-          walletTransactions = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
+    // Handle Notifications
+    if (notifRes.status === 'fulfilled' && notifRes.value.exists()) {
+      const nData = notifRes.value.data();
+      if (Array.isArray(nData.notifications)) {
+        const map = new Map<string, UserNotification>();
+        userNotifications.forEach(n => map.set(n.id, n));
+        nData.notifications.forEach((n: UserNotification) => {
+          if (n && n.id) map.set(n.id, n);
+        });
+        userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
-    } catch (err) {}
-
-    // Load notifications from localStorage
-    try {
-      const savedNotifs = localStorage.getItem('appDataNotifications');
-      if (savedNotifs) {
-        const parsedNotifs = JSON.parse(savedNotifs);
-        if (Array.isArray(parsedNotifs)) {
-          userNotifications = parsedNotifs;
-        }
-      }
-    } catch (err) {}
-
-    // Load notifications from Firestore appData/notifications
-    try {
-      const notifSnap = await getDoc(doc(db, 'appData', 'notifications'));
-      if (notifSnap.exists()) {
-        const nData = notifSnap.data();
-        if (Array.isArray(nData.notifications)) {
-          const map = new Map<string, UserNotification>();
-          userNotifications.forEach(n => map.set(n.id, n));
-          nData.notifications.forEach((n: UserNotification) => {
-            if (n && n.id) map.set(n.id, n);
-          });
-          userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        }
-      }
-    } catch (err) {}
+    }
     
     store.notify();
 
