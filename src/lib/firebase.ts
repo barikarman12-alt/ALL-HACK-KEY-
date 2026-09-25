@@ -8,7 +8,7 @@ const app = initializeApp(firebaseConfig);
 export const db = initializeFirestore(
   app,
   {
-    experimentalAutoDetectLongPolling: true,
+    experimentalForceLongPolling: true,
     ignoreUndefinedProperties: true,
   },
   firebaseConfig.firestoreDatabaseId || '(default)'
@@ -16,13 +16,20 @@ export const db = initializeFirestore(
 
 export const auth = getAuth(app);
 
-// Connection test helper
+// Graceful connection test helper with timeout
 async function testConnection() {
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Connection check timeout')), 4000)
+    );
+    await Promise.race([
+      getDocFromServer(doc(db, 'test', 'connection')),
+      timeoutPromise,
+    ]);
   } catch (error: any) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn("Firestore running in offline/cache mode.");
+    // Firestore operates gracefully with offline cache & long-polling
+    if (error?.message?.includes('offline') || error?.message?.includes('timeout')) {
+      // expected in offline or sandboxed preview
     }
   }
 }
