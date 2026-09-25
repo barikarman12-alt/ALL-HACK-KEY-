@@ -1,335 +1,471 @@
-import React, { useState, useEffect } from 'react';
-import { Shield, Zap, User, KeyRound, ArrowLeft, ArrowRight, Hash, Mail } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Shield, 
+  User, 
+  KeyRound, 
+  Mail, 
+  ArrowLeft, 
+  ArrowRight, 
+  Eye, 
+  EyeOff, 
+  CheckCircle2, 
+  Sparkles,
+  Lock,
+  UserPlus,
+  LogIn as LogInIcon,
+  HelpCircle
+} from 'lucide-react';
 import { registerWithIdMock, loginWithIdMock, resetPassword } from '../lib/useAuth';
 
 interface LoginProps {
   onBack: () => void;
+  defaultView?: 'register' | 'login';
 }
 
-export function Login({ onBack }: LoginProps) {
-  const [view, setView] = useState<'login' | 'register' | 'forgot' | 'reset'>('login');
+export function Login({ onBack, defaultView = 'register' }: LoginProps) {
+  // Default to Register first, as requested
+  const [view, setView] = useState<'register' | 'login' | 'forgot'>(defaultView);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   // Form states
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [otpStep, setOtpStep] = useState<1 | 2>(1);
-  const [enteredOtp, setEnteredOtp] = useState('');
-  const [generatedOtp, setGeneratedOtp] = useState('');
-  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Switch views and clear messages
-  const switchView = (newView: 'login' | 'register' | 'forgot' | 'reset') => {
+  // Switch tabs
+  const switchView = (newView: 'register' | 'login' | 'forgot') => {
     setView(newView);
     setError('');
     setSuccess('');
-    setPassword('');
-    setOtpStep(1);
-    setEnteredOtp('');
-    setGeneratedOtp('');
-    setNewPassword('');
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+  // 1. REGISTER NEW ACCOUNT
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    const cleanInput = emailOrUsername.toLowerCase().trim();
+    if (!cleanInput) {
+      setError('Please enter an Email or Username');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    if (confirmPassword && password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
     setIsLoading(true);
+
     try {
-      const customId = email.toLowerCase().trim();
-      await loginWithIdMock(customId, password);
-      setSuccess('Success! Welcome back.');
-      setTimeout(() => onBack(), 1000);
+      await registerWithIdMock(cleanInput, password, name.trim() || undefined);
+      setSuccess('Account created successfully! Logging you in...');
+      setTimeout(() => {
+        onBack();
+      }, 800);
     } catch (err: any) {
-      if (err?.code === 'auth/invalid-credential') {
-        setError('Invalid email or password. If you don\'t have an account, please Sign Up first.');
+      console.warn('Registration notice:', err?.code || err?.message);
+      if (err?.code === 'auth/email-already-in-use') {
+        // Attempt automatic login with the provided credentials
+        try {
+          await loginWithIdMock(cleanInput, password);
+          setSuccess('Account already exists. Logged in successfully!');
+          setTimeout(() => {
+            onBack();
+          }, 800);
+          return;
+        } catch (loginErr: any) {
+          // If password was incorrect, switch to Login view smoothly
+          setView('login');
+          setError('This account already exists. Please enter your password to Log In, or use Forgot Password.');
+        }
+      } else if (err?.code === 'auth/invalid-email') {
+        setError('Please enter a valid email address.');
+      } else if (err?.code === 'auth/weak-password') {
+        setError('Password is too weak. Use at least 6 letters or numbers.');
       } else {
-        setError(err.message || 'Invalid credentials.');
+        setError(err.message || 'Registration failed. Please try again.');
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  // 2. LOGIN TO EXISTING ACCOUNT
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
+
+    const cleanInput = emailOrUsername.toLowerCase().trim();
+    if (!cleanInput) {
+      setError('Please enter your Email or Username');
+      return;
+    }
+
+    if (!password) {
+      setError('Please enter your password');
+      return;
+    }
+
     setIsLoading(true);
+
     try {
-      const customId = email.toLowerCase().trim();
-      await registerWithIdMock(customId, password, name);
-      setSuccess('Account created successfully!');
-      setTimeout(() => switchView('login'), 2000);
+      await loginWithIdMock(cleanInput, password);
+      setSuccess('Logged in successfully! Redirecting...');
+      setTimeout(() => {
+        onBack();
+      }, 800);
     } catch (err: any) {
-      setError(err.message || 'Registration failed.');
+      console.error('Login error:', err);
+      if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/user-not-found' || err?.code === 'auth/wrong-password') {
+        setError('Invalid email or password. If you are new, please Sign Up first.');
+      } else if (err?.code === 'auth/too-many-requests') {
+        setError('Too many failed attempts. Please wait 1 minute or reset password.');
+      } else {
+        setError(err.message || 'Login failed. Please check credentials.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
+  // 3. FORGOT PASSWORD
   const handleForgot = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setSuccess('');
-    setIsLoading(true);
 
+    const cleanEmail = emailOrUsername.trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setError('Please enter a valid email address to receive password reset link.');
+      return;
+    }
+
+    setIsLoading(true);
     try {
-      await resetPassword(email);
-      setSuccess('Password reset link sent to your email.');
-      setEmail('');
+      await resetPassword(cleanEmail);
+      setSuccess(`Password reset email sent to ${cleanEmail}. Check your inbox/spam folder.`);
     } catch (err: any) {
-      const errorMessage = `Error: ${err.code} - ${err.message}`;
-      setError(errorMessage);
-      alert(errorMessage);
+      if (err?.code === 'auth/user-not-found') {
+        setError('No account found with this email. Please Sign Up.');
+      } else {
+        setError(err.message || 'Failed to send password reset email.');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleReset = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setSuccess('');
-    setIsLoading(true);
-    setTimeout(() => {
-      setSuccess('Password successfully reset! You can now log in.');
-      setTimeout(() => switchView('login'), 2000);
-      setIsLoading(false);
-    }, 1500);
-  };
-
   return (
-    <div className="min-h-screen pt-20 flex items-center justify-center p-4 relative overflow-hidden bg-gradient-to-br from-blue-900 via-zinc-950 to-fuchsia-900">
-      {/* Decorative background elements */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-fuchsia-600/20 rounded-full blur-[120px] pointer-events-none mix-blend-screen"></div>
-      <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/20 rounded-full blur-[100px] pointer-events-none mix-blend-screen"></div>
+    <div className="min-h-screen bg-[#09090b] text-white flex items-center justify-center p-4 sm:p-6 relative overflow-hidden transition-colors duration-300 theme-section">
+      
+      {/* Subtle Glow Backdrop */}
+      <div className="absolute top-1/4 -left-32 w-80 h-80 bg-indigo-600/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-1/4 -right-32 w-80 h-80 bg-violet-600/10 rounded-full blur-[140px] pointer-events-none" />
 
-      <div className="w-full max-w-md bg-white/10 backdrop-blur-xl border border-white/20 shadow-[0_25px_50px_-12px_rgba(0,0,0,0.5)] rounded-3xl p-8 sm:p-10 relative z-10">
+      {/* Main Frosted Obsidian Glass Card */}
+      <div className="w-full max-w-md bg-[#121215]/90 border border-white/10 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.8)] backdrop-blur-xl relative z-10 theme-modal">
         
-        {/* Messages */}
+        {/* Top Back Navigation */}
+        <div className="flex items-center justify-between pb-5 mb-6 border-b border-white/10 theme-modal-section">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-400 hover:text-white bg-zinc-900/80 hover:bg-zinc-800 border border-white/10 px-3 py-1.5 rounded-xl transition-colors cursor-pointer theme-pill"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Back to Store</span>
+          </button>
+
+          <span className="text-xs font-bold tracking-wider uppercase text-zinc-300 font-display theme-text-title">
+            ARMAN X STORE
+          </span>
+        </div>
+
+        {/* View Switcher Tabs */}
+        <div className="grid grid-cols-2 gap-1.5 p-1 bg-black/60 border border-white/10 rounded-2xl mb-6 theme-pill">
+          <button
+            type="button"
+            onClick={() => switchView('register')}
+            className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              view === 'register'
+                ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Sign Up</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => switchView('login')}
+            className={`py-2.5 px-3 rounded-xl text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+              view === 'login'
+                ? 'bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 text-white shadow-[0_0_20px_rgba(99,102,241,0.4)]'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <LogInIcon className="w-4 h-4" />
+            <span>Log In</span>
+          </button>
+        </div>
+
+        {/* Title Header */}
+        <div className="text-center mb-6 space-y-1">
+          <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight font-display theme-text-title">
+            {view === 'register' && 'Create Your Account'}
+            {view === 'login' && 'Welcome Back'}
+            {view === 'forgot' && 'Reset Password'}
+          </h2>
+          <p className="text-xs sm:text-sm text-zinc-400 theme-text-sub">
+            {view === 'register' && 'Sign up in seconds to access VIP digital keys & wallet.'}
+            {view === 'login' && 'Enter your credentials to manage keys and balance.'}
+            {view === 'forgot' && 'Enter your registered email to receive a reset link.'}
+          </p>
+        </div>
+
+        {/* Status Alerts */}
         {error && (
-          <div className="mb-6 p-3 bg-red-500/20 border border-red-500/50 text-red-200 text-sm font-medium rounded-lg text-center backdrop-blur-md animate-in fade-in slide-in-from-top-2">
+          <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs sm:text-sm font-medium text-center animate-in fade-in">
             {error}
           </div>
         )}
+
         {success && (
-          <div className="mb-6 p-3 bg-green-500/20 border border-green-500/50 text-green-200 text-sm font-medium rounded-lg text-center backdrop-blur-md animate-in fade-in slide-in-from-top-2">
-            {success}
+          <div className="mb-4 p-3.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-300 text-xs sm:text-sm font-medium text-center flex items-center justify-center gap-2 animate-in fade-in">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span>{success}</span>
           </div>
         )}
 
-        {/* LOGIN VIEW */}
-        {view === 'login' && (
-          <div className="animate-in fade-in zoom-in-95 duration-300">
-            <h2 className="text-3xl font-bold text-white mb-2 text-center tracking-tight font-display">Welcome Back</h2>
-            <p className="text-white/70 text-sm text-center mb-8">Sign in to continue to your dashboard.</p>
-            
-            <form onSubmit={handleLogin} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="email" 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="you@example.com"
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">Password</label>
-                <div className="relative">
-                  <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="password" 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required 
-                    minLength={6} 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
-              
-              <button 
-                type="submit" 
-                disabled={isLoading}
-                className="w-full bg-white/10 border border-white/20 text-white font-bold py-3.5 rounded-xl hover:bg-white/20 transition duration-300 mt-2 disabled:opacity-70 disabled:cursor-not-allowed"
-              >
-                {isLoading ? 'Signing In...' : 'Sign In with Email'}
-              </button>
-            </form>
-            
-            <div className="mt-6 flex flex-col items-center space-y-4">
-              <button onClick={() => switchView('forgot')} className="text-white/70 hover:text-white text-sm font-medium transition-colors">
-                Forgot Password?
-              </button>
-              <div className="w-full h-px bg-white/10"></div>
-              <button onClick={() => switchView('register')} className="text-white/90 hover:text-white text-sm font-medium transition-colors">
-                Don't have an account? <span className="font-bold underline decoration-white/30 underline-offset-4">Sign Up</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* REGISTER VIEW */}
+        {/* 1. REGISTER FORM */}
         {view === 'register' && (
-          <div className="animate-in fade-in zoom-in-95 duration-300">
-            <h2 className="text-3xl font-bold text-white mb-2 text-center tracking-tight font-display">Create Account</h2>
-            <p className="text-white/70 text-sm text-center mb-8">Join us today to get started.</p>
-            
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">Full Name</label>
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="text" 
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    required 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="John Doe"
-                  />
-                </div>
+          <form onSubmit={handleRegister} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1.5 theme-text-title">
+                Your Name (Optional)
+              </label>
+              <div className="relative">
+                <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Arman Barik"
+                  className="w-full pl-10 pr-4 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all theme-input"
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="email" 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="you@example.com"
-                  />
-                </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1.5 theme-text-title">
+                Email or Username <span className="text-indigo-400">*</span>
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="text"
+                  required
+                  value={emailOrUsername}
+                  onChange={(e) => setEmailOrUsername(e.target.value)}
+                  placeholder="you@gmail.com or username"
+                  className="w-full pl-10 pr-4 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
+                />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">Password</label>
-                <div className="relative">
-                  <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="password" 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required 
-                    minLength={6} 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="Min 6 characters"
-                  />
-                </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1.5 theme-text-title">
+                Password <span className="text-indigo-400">* (Min 6 characters)</span>
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
               </div>
-              
-              <button 
-                type="submit" 
-                disabled={isLoading}
-                className="w-full bg-white/10 border border-white/20 text-white font-bold py-3.5 rounded-xl hover:bg-white/20 transition duration-300 mt-4 disabled:opacity-70 disabled:cursor-not-allowed"
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1.5 theme-text-title">
+                Confirm Password <span className="text-indigo-400">*</span>
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-4 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.45)] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2 active:scale-[0.98]"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>{isLoading ? 'Creating Account...' : 'Register Account'}</span>
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => switchView('login')}
+                className="text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer theme-text-sub"
               >
-                {isLoading ? 'Creating Account...' : 'Create Account with Email'}
-              </button>
-            </form>
-            
-            <div className="mt-6 text-center">
-              <button onClick={() => switchView('login')} className="text-white/90 hover:text-white text-sm font-medium transition-colors">
-                Already have an account? <span className="font-bold underline decoration-white/30 underline-offset-4">Sign In</span>
+                Already registered? <span className="text-indigo-400 font-bold underline underline-offset-4">Log In here</span>
               </button>
             </div>
-          </div>
+          </form>
         )}
 
-        {/* FORGOT PASSWORD VIEW */}
+        {/* 2. LOGIN FORM */}
+        {view === 'login' && (
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1.5 theme-text-title">
+                Email or Username
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="text"
+                  required
+                  value={emailOrUsername}
+                  onChange={(e) => setEmailOrUsername(e.target.value)}
+                  placeholder="you@gmail.com or username"
+                  className="w-full pl-10 pr-4 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 theme-text-title">
+                  Password
+                </label>
+                <button
+                  type="button"
+                  onClick={() => switchView('forgot')}
+                  className="text-[11px] text-zinc-400 hover:text-indigo-400 transition-colors cursor-pointer theme-text-sub"
+                >
+                  Forgot Password?
+                </button>
+              </div>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-10 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white p-0.5 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.45)] transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2 active:scale-[0.98]"
+            >
+              <LogInIcon className="w-4 h-4" />
+              <span>{isLoading ? 'Logging In...' : 'Log In'}</span>
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => switchView('register')}
+                className="text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer theme-text-sub"
+              >
+                Don't have an account? <span className="text-indigo-400 font-bold underline underline-offset-4">Register for Free</span>
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* 3. FORGOT PASSWORD FORM */}
         {view === 'forgot' && (
-          <div className="animate-in fade-in zoom-in-95 duration-300">
-            <h2 className="text-3xl font-bold text-white mb-2 text-center tracking-tight font-display">Reset Password</h2>
-            <p className="text-white/70 text-sm text-center mb-8">Enter your email and we'll send you a secure link to reset your password.</p>
-            
-            <form onSubmit={handleForgot} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">Email Address</label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="email" 
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="you@example.com"
-                  />
-                </div>
+          <form onSubmit={handleForgot} className="space-y-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-300 mb-1.5 theme-text-title">
+                Registered Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500" />
+                <input
+                  type="email"
+                  required
+                  value={emailOrUsername}
+                  onChange={(e) => setEmailOrUsername(e.target.value)}
+                  placeholder="you@domain.com"
+                  className="w-full pl-10 pr-4 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 font-mono theme-input"
+                />
               </div>
-              
-              <button 
-                type="submit" 
-                disabled={isLoading}
-                className="w-full bg-white text-indigo-900 font-bold py-3.5 rounded-xl hover:bg-gray-100 transition duration-300 shadow-[0_0_20px_rgba(255,255,255,0.3)] disabled:opacity-70 disabled:cursor-not-allowed"
-              >
-                {isLoading ? 'Sending...' : 'Send Reset Link'}
-              </button>
-            </form>
-            
-            <div className="mt-8 text-center">
-              <button onClick={() => switchView('login')} className="text-white/70 hover:text-white text-sm font-medium flex items-center justify-center w-full gap-2 transition-colors">
-                <ArrowLeft className="w-4 h-4" />
-                Back to Login
-              </button>
             </div>
-          </div>
-        )}
 
-        {/* RESET PASSWORD VIEW */}
-        {view === 'reset' && (
-          <div className="animate-in fade-in zoom-in-95 duration-300">
-            <h2 className="text-3xl font-bold text-white mb-2 text-center tracking-tight font-display">New Password</h2>
-            <p className="text-white/70 text-sm text-center mb-8">Your identity has been verified. Please enter your new secure password.</p>
-            
-            <form onSubmit={handleReset} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-white/90 mb-1.5">New Password</label>
-                <div className="relative">
-                  <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/50" />
-                  <input 
-                    type="password" 
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required 
-                    minLength={6} 
-                    className="w-full pl-12 pr-4 py-3.5 bg-black/20 border border-white/10 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-white/50 focus:ring-4 focus:ring-white/10 transition-all" 
-                    placeholder="Min 6 characters"
-                  />
-                </div>
-              </div>
-              
-              <button 
-                type="submit" 
-                disabled={isLoading}
-                className="w-full bg-white text-indigo-900 font-bold py-3.5 rounded-xl hover:bg-gray-100 transition duration-300 shadow-[0_0_20px_rgba(255,255,255,0.3)] disabled:opacity-70 disabled:cursor-not-allowed"
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-[0_0_20px_rgba(99,102,241,0.4)]"
+            >
+              <span>{isLoading ? 'Sending Link...' : 'Send Reset Link'}</span>
+            </button>
+
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => switchView('login')}
+                className="text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer theme-text-sub"
               >
-                {isLoading ? 'Updating...' : 'Update Password'}
-              </button>
-            </form>
-            
-            <div className="mt-8 text-center">
-              <button onClick={() => switchView('login')} className="text-white/70 hover:text-white text-sm font-medium flex items-center justify-center w-full gap-2 transition-colors">
-                <ArrowLeft className="w-4 h-4" />
-                Back to Login
+                Back to <span className="text-indigo-400 font-semibold underline">Log In</span>
               </button>
             </div>
-          </div>
+          </form>
         )}
 
       </div>
+
     </div>
   );
 }

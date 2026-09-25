@@ -179,6 +179,23 @@ export interface UserNotification {
   productName?: string;
 }
 
+export interface PendingOrder {
+  id: string;
+  orderId: string;
+  userId: string;
+  userEmail?: string;
+  type: 'balance' | 'keys';
+  amount: number;
+  status: 'pending' | 'completed' | 'failed';
+  productName?: string;
+  durationLabel?: string;
+  durationValue?: string;
+  quantity?: number;
+  couponCode?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 const defaultCoupons: Coupon[] = [
   {
     id: 'coupon_off20',
@@ -279,6 +296,17 @@ const loadInitialNotifications = (): UserNotification[] => {
   return [];
 };
 
+const loadInitialPendingOrders = (): PendingOrder[] => {
+  try {
+    const saved = localStorage.getItem('appDataPendingOrders');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+};
+
 const loadInitialCoupons = (): Coupon[] => {
   try {
     const dedicated = localStorage.getItem('appDataCoupons');
@@ -323,9 +351,11 @@ let coupons: Coupon[] = loadInitialCoupons();
 let registeredUsers: UserProfile[] = loadInitialUsers();
 let walletTransactions: WalletTransaction[] = loadInitialTransactions();
 let userNotifications: UserNotification[] = loadInitialNotifications();
+let pendingOrders: PendingOrder[] = loadInitialPendingOrders();
 
 const listeners = new Set<() => void>();
 let initialized = (settings.categories && settings.categories.length > 0);
+let listenersRegistered = false;
 
 // Sync functions
 const syncCouponsToStorage = async () => {
@@ -402,6 +432,17 @@ const syncNotificationsToStorage = async () => {
     }
   } catch (e: any) {
     console.warn('Failed to sync notifications:', e.message);
+  }
+};
+
+const syncPendingOrdersToStorage = async () => {
+  try {
+    localStorage.setItem('appDataPendingOrders', JSON.stringify(pendingOrders));
+    if (auth.currentUser) {
+      await setDoc(doc(db, 'appData', 'pendingOrders'), { orders: pendingOrders.slice(0, 100) }, { merge: true });
+    }
+  } catch (e: any) {
+    console.warn('Failed to sync pending orders:', e?.message || e);
   }
 };
 
@@ -553,107 +594,154 @@ const initializeData = async () => {
         userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
     }
+
+    // Handle Pending Orders
+    const pendingOrdersRes = await getDoc(doc(db, 'appData', 'pendingOrders')).catch(() => null);
+    if (pendingOrdersRes && pendingOrdersRes.exists()) {
+      const pData = pendingOrdersRes.data();
+      if (Array.isArray(pData.orders)) {
+        const map = new Map<string, PendingOrder>();
+        pendingOrders.forEach(o => map.set(o.orderId, o));
+        pData.orders.forEach((o: PendingOrder) => {
+          if (o && o.orderId) map.set(o.orderId, o);
+        });
+        pendingOrders = Array.from(map.values());
+      }
+    }
     
     store.notify();
 
-    // Listen to real-time changes
-    onSnapshot(doc(db, 'appData', 'coupons'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.coupons && Array.isArray(data.coupons)) {
-          coupons = mergeCoupons(coupons, data.coupons);
-          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
-          store.notify();
-        }
-      }
-    });
+    // Listen to real-time changes if not already registered
+    if (!listenersRegistered) {
+      listenersRegistered = true;
 
-    onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
-        if (data.settings) {
-          settings = data.settings;
-          if (settings.categories) {
-            settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+      onSnapshot(doc(db, 'appData', 'coupons'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.coupons && Array.isArray(data.coupons)) {
+            coupons = mergeCoupons(coupons, data.coupons);
+            localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+            store.notify();
           }
         }
-        if (data.coupons && Array.isArray(data.coupons)) {
-          coupons = mergeCoupons(coupons, data.coupons);
-          localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
-        }
-        if (data.balances) {
-          balances = { ...balances, ...data.balances };
-          // Preserve local storage user balances
-          try {
-            for (let i = 0; i < localStorage.length; i++) {
-              const key = localStorage.key(i);
-              if (key && key.startsWith('user_balance_')) {
-                const uid = key.replace('user_balance_', '');
-                const val = parseFloat(localStorage.getItem(key) || '0');
-                if (!isNaN(val) && val > (balances[uid] || 0)) {
-                  balances[uid] = val;
+      }, (err) => {
+        console.warn('Coupons snapshot offline/notice:', err?.message || err);
+      });
+
+      onSnapshot(doc(db, 'appData', 'global'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
+          if (data.settings) {
+            settings = data.settings;
+            if (settings.categories) {
+              settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
+            }
+          }
+          if (data.coupons && Array.isArray(data.coupons)) {
+            coupons = mergeCoupons(coupons, data.coupons);
+            localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+          }
+          if (data.balances) {
+            balances = { ...balances, ...data.balances };
+            // Preserve local storage user balances
+            try {
+              for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('user_balance_')) {
+                  const uid = key.replace('user_balance_', '');
+                  const val = parseFloat(localStorage.getItem(key) || '0');
+                  if (!isNaN(val) && val > (balances[uid] || 0)) {
+                    balances[uid] = val;
+                  }
                 }
               }
-            }
-          } catch(e) {}
-        }
-        store.notify();
-      }
-    });
-
-    onSnapshot(doc(db, 'appData', 'purchases'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (data.purchases) purchases = data.purchases;
-        store.notify();
-      }
-    });
-
-    onSnapshot(doc(db, 'appData', 'usersRegistry'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (Array.isArray(data.users)) {
-          const map = new Map<string, UserProfile>();
-          registeredUsers.forEach(u => map.set(u.uid, u));
-          data.users.forEach((u: UserProfile) => {
-            if (u && u.uid) map.set(u.uid, { ...map.get(u.uid), ...u });
-          });
-          registeredUsers = Array.from(map.values());
+            } catch(e) {}
+          }
           store.notify();
         }
-      }
-    });
+      }, (err) => {
+        console.warn('Global snapshot offline/notice:', err?.message || err);
+      });
 
-    onSnapshot(doc(db, 'appData', 'walletTransactions'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (Array.isArray(data.transactions)) {
-          const map = new Map<string, WalletTransaction>();
-          walletTransactions.forEach(t => map.set(t.id, t));
-          data.transactions.forEach((t: WalletTransaction) => {
-            if (t && t.id) map.set(t.id, t);
-          });
-          walletTransactions = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      onSnapshot(doc(db, 'appData', 'purchases'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.purchases) purchases = data.purchases;
           store.notify();
         }
-      }
-    });
+      }, (err) => {
+        console.warn('Purchases snapshot offline/notice:', err?.message || err);
+      });
 
-    onSnapshot(doc(db, 'appData', 'notifications'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        if (Array.isArray(data.notifications)) {
-          const map = new Map<string, UserNotification>();
-          userNotifications.forEach(n => map.set(n.id, n));
-          data.notifications.forEach((n: UserNotification) => {
-            if (n && n.id) map.set(n.id, n);
-          });
-          userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-          store.notify();
+      onSnapshot(doc(db, 'appData', 'usersRegistry'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (Array.isArray(data.users)) {
+            const map = new Map<string, UserProfile>();
+            registeredUsers.forEach(u => map.set(u.uid, u));
+            data.users.forEach((u: UserProfile) => {
+              if (u && u.uid) map.set(u.uid, { ...map.get(u.uid), ...u });
+            });
+            registeredUsers = Array.from(map.values());
+            store.notify();
+          }
         }
-      }
-    });
+      }, (err) => {
+        console.warn('Users registry snapshot offline/notice:', err?.message || err);
+      });
+
+      onSnapshot(doc(db, 'appData', 'walletTransactions'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (Array.isArray(data.transactions)) {
+            const map = new Map<string, WalletTransaction>();
+            walletTransactions.forEach(t => map.set(t.id, t));
+            data.transactions.forEach((t: WalletTransaction) => {
+              if (t && t.id) map.set(t.id, t);
+            });
+            walletTransactions = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            store.notify();
+          }
+        }
+      }, (err) => {
+        console.warn('Wallet transactions snapshot offline/notice:', err?.message || err);
+      });
+
+      onSnapshot(doc(db, 'appData', 'notifications'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (Array.isArray(data.notifications)) {
+            const map = new Map<string, UserNotification>();
+            userNotifications.forEach(n => map.set(n.id, n));
+            data.notifications.forEach((n: UserNotification) => {
+              if (n && n.id) map.set(n.id, n);
+            });
+            userNotifications = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            store.notify();
+          }
+        }
+      }, (err) => {
+        console.warn('Notifications snapshot offline/notice:', err?.message || err);
+      });
+
+      onSnapshot(doc(db, 'appData', 'pendingOrders'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (Array.isArray(data.orders)) {
+            const map = new Map<string, PendingOrder>();
+            pendingOrders.forEach(o => map.set(o.orderId, o));
+            data.orders.forEach((o: PendingOrder) => {
+              if (o && o.orderId) map.set(o.orderId, o);
+            });
+            pendingOrders = Array.from(map.values());
+            store.notify();
+          }
+        }
+      }, (err) => {
+        console.warn('Pending orders snapshot offline/notice:', err?.message || err);
+      });
+    }
 
   } catch (e) {
     console.warn("Could not load from Firestore (expected if unauthenticated). Falling back to local storage:", e);
@@ -1387,6 +1475,34 @@ export const store = {
     store.notify();
   },
 
+  savePendingOrder: async (order: PendingOrder) => {
+    pendingOrders = [order, ...pendingOrders.filter(o => o.orderId !== order.orderId)];
+    syncPendingOrdersToStorage();
+    try {
+      if (auth.currentUser) {
+        await setDoc(doc(db, 'pendingOrders', order.orderId), order, { merge: true }).catch(() => {});
+      }
+    } catch (e) {}
+    store.notify();
+    return order;
+  },
+
+  completePendingOrder: async (orderId: string) => {
+    pendingOrders = pendingOrders.map(o => o.orderId === orderId ? { ...o, status: 'completed', updatedAt: new Date().toISOString() } : o);
+    syncPendingOrdersToStorage();
+    try {
+      if (auth.currentUser) {
+        await setDoc(doc(db, 'pendingOrders', orderId), { status: 'completed', updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+      }
+    } catch (e) {}
+    store.notify();
+  },
+
+  getPendingOrders: (userId?: string): PendingOrder[] => {
+    if (!userId) return pendingOrders.filter(o => o.status === 'pending');
+    return pendingOrders.filter(o => (o.userId === userId || o.userId === 'anonymous') && o.status === 'pending');
+  },
+
   subscribe: (listener: () => void) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
@@ -1528,6 +1644,24 @@ export function useInventory(userId?: string) {
     deleteProduct: store.deleteProduct,
     purchaseKeys: store.purchaseKeys,
     isInitialized
+  };
+}
+
+export function usePendingOrders(userId?: string) {
+  const [pendingList, setPendingList] = useState<PendingOrder[]>(store.getPendingOrders(userId));
+
+  useEffect(() => {
+    setPendingList(store.getPendingOrders(userId));
+    return store.subscribe(() => {
+      setPendingList(store.getPendingOrders(userId));
+    });
+  }, [userId]);
+
+  return {
+    pendingOrders: pendingList,
+    savePendingOrder: store.savePendingOrder,
+    completePendingOrder: store.completePendingOrder,
+    getPendingOrders: store.getPendingOrders
   };
 }
 

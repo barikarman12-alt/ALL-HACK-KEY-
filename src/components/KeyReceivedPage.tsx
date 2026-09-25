@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { useInventory, resolveProductName } from '../store';
 import { useAuth } from '../lib/useAuth';
+import { InstallAppButton } from './InstallAppButton';
 
 export interface KeyReceivedData {
   keys: string[];
@@ -101,34 +102,35 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
   const apkLink = "https://t.me/allfileupdatehack";
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-100 pt-24 pb-20 px-4 sm:px-6 lg:px-8 selection:bg-fuchsia-500 selection:text-white">
+    <div className="min-h-screen bg-[#09090b] text-zinc-100 pt-24 pb-20 px-4 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white transition-colors duration-300 theme-section">
       <div className="max-w-4xl mx-auto space-y-8">
         
         {/* Navigation & Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-zinc-800">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-6 border-b border-white/10 theme-modal-section">
           <div>
             <button
               onClick={onBackToHome}
-              className="inline-flex items-center gap-2 text-zinc-400 hover:text-white hover:bg-zinc-900 px-3 py-1.5 rounded-lg transition-colors text-sm font-medium mb-2 border border-zinc-800"
+              className="inline-flex items-center gap-2 text-zinc-400 hover:text-white bg-zinc-900/80 hover:bg-zinc-800 px-3.5 py-1.5 rounded-xl transition-colors text-xs sm:text-sm font-semibold mb-2.5 border border-white/10 cursor-pointer theme-pill"
             >
               <ArrowLeft className="w-4 h-4" />
               Back to Store
             </button>
-            <h1 className="text-3xl sm:text-4xl font-bold font-display text-white tracking-tight flex items-center gap-3">
+            <h1 className="text-2xl sm:text-4xl font-bold font-display text-white tracking-tight flex items-center gap-3 theme-text-title">
               <span>Order Completed</span>
-              <span className="text-xs sm:text-sm font-sans font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full flex items-center gap-1.5">
+              <span className="text-xs sm:text-sm font-sans font-semibold bg-emerald-950/40 text-emerald-400 border border-emerald-500/30 px-3 py-1 rounded-full flex items-center gap-1.5">
                 <Check className="w-3.5 h-3.5" />
                 Key Ready
               </span>
             </h1>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+            <InstallAppButton variant="header" siteName={settings.siteName} />
             <button
               onClick={onBackToHome}
-              className="px-4 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-200 text-sm font-medium rounded-xl border border-zinc-800 transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-200 text-xs sm:text-sm font-semibold rounded-xl border border-white/10 transition-colors flex items-center gap-2 cursor-pointer theme-pill"
             >
-              <ShoppingBag className="w-4 h-4 text-fuchsia-400" />
+              <ShoppingBag className="w-4 h-4 text-indigo-400" />
               Buy More
             </button>
           </div>
@@ -136,20 +138,20 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
 
         {/* Top Product Summary if available */}
         {activeData && (
-          <div className="bg-zinc-900/60 border border-zinc-800 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4">
+          <div className="bg-[#121215]/80 border border-white/10 rounded-2xl p-5 flex flex-wrap items-center justify-between gap-4 backdrop-blur-xl theme-card">
             <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-fuchsia-500/10 border border-fuchsia-500/30 flex items-center justify-center text-fuchsia-400">
+              <div className="w-11 h-11 rounded-xl bg-indigo-950/60 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <p className="text-xs uppercase tracking-wider text-zinc-400 font-semibold">Product Name</p>
-                <h3 className="text-lg font-bold text-white">
+                <p className="text-[10px] sm:text-xs uppercase tracking-wider text-zinc-400 font-semibold theme-text-sub">Product Name</p>
+                <h3 className="text-base sm:text-lg font-bold text-white theme-text-title">
                   {resolveProductName(activeData.productName, settings.categories, items)} {activeData.durationLabel ? `• ${activeData.durationLabel}` : ''}
                 </h3>
               </div>
             </div>
             {activeData.date && (
-              <div className="flex items-center gap-2 text-xs text-zinc-400 bg-zinc-950 px-3 py-1.5 rounded-lg border border-zinc-800/80">
+              <div className="flex items-center gap-2 text-xs text-zinc-400 bg-black/60 px-3 py-1.5 rounded-lg border border-white/10 theme-pill">
                 <Clock className="w-3.5 h-3.5 text-zinc-500" />
                 <span>{new Date(activeData.date).toLocaleDateString()} at {new Date(activeData.date).toLocaleTimeString()}</span>
               </div>
@@ -158,22 +160,20 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
         )}
 
         {/* SECTION 1: APK FILE LINK */}
-        <div className="bg-gradient-to-br from-zinc-900 via-zinc-900 to-zinc-950 border-2 border-fuchsia-500/40 rounded-2xl p-6 sm:p-7 shadow-[0_0_25px_rgba(224,0,255,0.15)] relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-fuchsia-500/10 rounded-full blur-3xl pointer-events-none" />
-          
+        <div className="bg-[#121215]/80 border border-white/15 rounded-2xl p-6 sm:p-7 shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl relative overflow-hidden theme-card">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
             <div className="space-y-2 max-w-xl">
-              <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-fuchsia-400 bg-fuchsia-500/10 border border-fuchsia-500/30 px-3 py-1 rounded-full">
+              <div className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-indigo-400 bg-indigo-950/50 border border-indigo-500/30 px-3 py-1 rounded-full theme-pill">
                 <Smartphone className="w-3.5 h-3.5" />
                 Step 1: Download Required App
               </div>
-              <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight theme-text-title">
                 1. Apk File Link
               </h2>
-              <p className="text-zinc-300 text-sm sm:text-base leading-relaxed">
+              <p className="text-zinc-300 text-xs sm:text-sm leading-relaxed theme-text-sub">
                 Key use karne ke liye pehle official APK file download karein. Saare latest update files aur updates hamare official Telegram channel par available hain:
               </p>
-              <div className="text-xs text-zinc-400 font-mono bg-zinc-950/80 px-3 py-1.5 rounded-lg border border-zinc-800 inline-block break-all">
+              <div className="text-xs text-zinc-400 font-mono bg-black/70 px-3 py-1.5 rounded-lg border border-white/10 inline-block break-all theme-pill">
                 {apkLink}
               </div>
             </div>
@@ -183,7 +183,7 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
                 href={apkLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-6 py-4 bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500 text-white font-bold text-base rounded-xl shadow-[0_0_25px_rgba(224,0,255,0.4)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-3 px-6 py-3.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-sm sm:text-base rounded-xl shadow-[0_0_25px_rgba(99,102,241,0.45)] transition-all transform hover:-translate-y-0.5 active:translate-y-0 cursor-pointer"
               >
                 <Download className="w-5 h-5 animate-bounce" />
                 <span>Download APK File</span>
@@ -193,14 +193,40 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
           </div>
         </div>
 
-        {/* SECTION 2: KEY BOX (YOUR KEY 🗝️🔐) */}
-        <div className="bg-zinc-900 border-2 border-emerald-500/40 rounded-2xl p-6 sm:p-7 shadow-[0_0_25px_rgba(16,185,129,0.15)] space-y-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-zinc-800">
+        {/* BONUS: INSTALL STORE APP */}
+        <div className="bg-[#121215]/80 border border-white/10 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 backdrop-blur-xl theme-card">
+          <div className="flex items-center gap-3.5">
+            <div className="w-11 h-11 rounded-xl bg-zinc-900 border border-white/15 p-1 flex items-center justify-center flex-shrink-0">
+              <img src="/pwa-192x192.png" alt="App Icon" className="w-full h-full object-cover rounded-lg" onError={(e) => {
+                (e.target as HTMLImageElement).src = '/icon.svg';
+              }} />
+            </div>
             <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-0.5 rounded-full inline-block mb-1">
+              <h3 className="text-sm sm:text-base font-bold text-white flex items-center gap-2 theme-text-title">
+                <span>Install {settings.siteName || 'ARMAN X STORE'} App</span>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider bg-indigo-950/60 text-indigo-300 border border-indigo-500/40 px-2 py-0.5 rounded-full">
+                  Fast 1-Tap
+                </span>
+              </h3>
+              <p className="text-xs text-zinc-400 theme-text-sub">
+                Apne mobile home screen par app icon add karein taaki direct 1-tap me access mile!
+              </p>
+            </div>
+          </div>
+
+          <div className="flex-shrink-0 w-full sm:w-auto">
+            <InstallAppButton variant="card" siteName={settings.siteName} className="w-full sm:w-auto !py-2.5 !px-4" />
+          </div>
+        </div>
+
+        {/* SECTION 2: KEY BOX */}
+        <div className="bg-[#121215]/90 border border-emerald-500/30 rounded-2xl p-6 sm:p-7 shadow-[0_10px_30px_rgba(0,0,0,0.5)] backdrop-blur-xl space-y-5 theme-card">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-white/10 theme-modal-section">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400 bg-emerald-950/50 border border-emerald-500/30 px-2.5 py-0.5 rounded-full inline-block mb-1">
                 Step 2: Copy License Key
               </span>
-              <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+              <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight flex items-center gap-2 theme-text-title">
                 <span>YOUR KEY 🗝️🔐</span>
               </h2>
             </div>
@@ -208,7 +234,7 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
             {activeData && activeData.keys.length > 1 && (
               <button
                 onClick={handleCopyAll}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 rounded-xl text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer"
               >
                 {allCopied ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
                 {allCopied ? 'All Keys Copied!' : `Copy All (${activeData.keys.length}) Keys`}
@@ -224,14 +250,14 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
                 return (
                   <div 
                     key={index}
-                    className="bg-zinc-950 border border-emerald-500/30 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 shadow-[0_0_15px_rgba(0,0,0,0.5)] group hover:border-emerald-500/60 transition-colors"
+                    className="bg-black/60 border border-white/10 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 shadow-[0_4px_20px_rgba(0,0,0,0.4)] group hover:border-emerald-500/50 transition-colors theme-pill"
                   >
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-9 h-9 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0 border border-emerald-500/20">
+                      <div className="w-9 h-9 rounded-lg bg-emerald-950/60 text-emerald-400 flex items-center justify-center flex-shrink-0 border border-emerald-500/20">
                         <Key className="w-5 h-5" />
                       </div>
                       <div className="overflow-hidden">
-                        <p className="text-[11px] text-zinc-400 uppercase font-semibold tracking-wider">
+                        <p className="text-[10px] sm:text-[11px] text-zinc-400 uppercase font-semibold tracking-wider theme-text-sub">
                           License Key {activeData.keys.length > 1 ? `#${index + 1}` : ''}
                         </p>
                         <p className="font-mono text-base sm:text-xl font-bold text-emerald-400 tracking-wider break-all select-all">
@@ -242,7 +268,7 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
 
                     <button
                       onClick={() => handleCopySingle(key, index)}
-                      className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition-all duration-200 cursor-pointer flex-shrink-0 ${
+                      className={`inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl font-bold text-xs sm:text-sm transition-all duration-200 cursor-pointer flex-shrink-0 ${
                         isCopied 
                           ? 'bg-emerald-500 text-zinc-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
                           : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]'
@@ -265,12 +291,12 @@ export function KeyReceivedPage({ data, onBackToHome }: KeyReceivedPageProps) {
               })}
             </div>
           ) : (
-            <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-8 text-center space-y-3">
-              <Key className="w-10 h-10 text-zinc-600 mx-auto" />
-              <p className="text-zinc-400 font-medium">No active key found in current session.</p>
+            <div className="bg-black/60 border border-white/10 rounded-xl p-8 text-center space-y-3 theme-pill">
+              <Key className="w-10 h-10 text-zinc-500 mx-auto" />
+              <p className="text-zinc-400 font-medium theme-text-sub">No active key found in current session.</p>
               <button
                 onClick={onBackToHome}
-                className="px-5 py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white rounded-xl font-medium text-sm transition-colors"
+                className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white rounded-xl font-medium text-xs sm:text-sm transition-all cursor-pointer shadow-[0_0_15px_rgba(99,102,241,0.3)]"
               >
                 Go to Store to Purchase
               </button>

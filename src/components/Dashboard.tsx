@@ -315,12 +315,12 @@ export function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 pt-20">
+    <div className="min-h-screen bg-[#09090b] text-zinc-100 pt-20 transition-colors duration-300 theme-section">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {activeTab === 'menu' ? (
           <div>
-            <h1 className="text-3xl font-display font-bold text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.3)] mb-8">
+            <h1 className="text-3xl font-display font-bold text-white mb-8 theme-text-title">
               Owner Dashboard
             </h1>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
@@ -328,10 +328,10 @@ export function Dashboard() {
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab.toLowerCase().replace(' ', '-'))}
-                  className="p-8 bg-zinc-900 border border-zinc-800 rounded-2xl text-left hover:border-fuchsia-500/50 hover:bg-zinc-800 transition-all shadow-[0_0_15px_rgba(224,0,255,0.05)] hover:shadow-[0_0_20px_rgba(224,0,255,0.15)] flex justify-between items-center group"
+                  className="p-8 bg-[#121215]/90 border border-white/10 rounded-2xl text-left hover:border-indigo-500/50 hover:bg-[#18181f] transition-all shadow-[0_4px_20px_rgba(0,0,0,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.2)] flex justify-between items-center group cursor-pointer backdrop-blur-xl theme-card"
                 >
-                  <span className="text-xl font-bold text-white">{tab}</span>
-                  <ArrowRight className="w-6 h-6 text-zinc-600 group-hover:text-fuchsia-400 transition-colors" />
+                  <span className="text-xl font-bold text-white theme-text-title">{tab}</span>
+                  <ArrowRight className="w-6 h-6 text-zinc-500 group-hover:text-indigo-400 transition-colors transform group-hover:translate-x-1" />
                 </button>
               ))}
             </div>
@@ -341,11 +341,11 @@ export function Dashboard() {
             <div className="flex items-center mb-8">
               <button
                 onClick={() => setActiveTab('menu')}
-                className="mr-4 p-2 bg-zinc-900 border border-zinc-800 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all shadow-[0_0_10px_rgba(224,0,255,0.05)]"
+                className="mr-4 p-2 bg-zinc-900/80 border border-white/10 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer theme-pill"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
-              <h1 className="text-3xl font-display font-bold text-white drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">
+              <h1 className="text-3xl font-display font-bold text-white theme-text-title">
                 {activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
               </h1>
             </div>
@@ -354,25 +354,25 @@ export function Dashboard() {
           <div className="space-y-8">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {stats.map((stat, index) => (
-                <div key={index} className="bg-zinc-900 border border-zinc-800 hover:border-fuchsia-500/30 p-6 rounded-2xl shadow-[0_0_15px_rgba(224,0,255,0.05)] hover:shadow-[0_0_20px_rgba(224,0,255,0.15)] relative overflow-hidden group transition-all">
+                <div key={index} className="bg-[#121215]/90 border border-white/10 hover:border-indigo-500/40 p-6 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] relative overflow-hidden group transition-all backdrop-blur-xl theme-card">
                   <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <stat.icon className="w-16 h-16 text-fuchsia-500 -mt-4 -mr-4 transform rotate-12 drop-shadow-[0_0_10px_rgba(224,0,255,0.8)]" />
+                    <stat.icon className="w-16 h-16 text-indigo-500 -mt-4 -mr-4 transform rotate-12" />
                   </div>
                   <div className="relative z-10 flex justify-between items-start mb-4">
-                    <div className="p-2 bg-fuchsia-500/10 text-fuchsia-400 rounded-lg shadow-[0_0_10px_rgba(224,0,255,0.2)]">
+                    <div className="p-2 bg-indigo-950/60 border border-indigo-500/30 text-indigo-400 rounded-xl">
                       <stat.icon className="w-5 h-5" />
                     </div>
                   </div>
                   <div className="relative z-10">
-                    <h3 className="text-zinc-400 font-medium text-sm mb-1">{stat.name}</h3>
+                    <h3 className="text-zinc-400 font-medium text-sm mb-1 theme-text-sub">{stat.name}</h3>
                     <div className="flex items-baseline space-x-2">
-                      <span className="text-3xl font-display font-bold text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]">{stat.value}</span>
+                      <span className="text-3xl font-display font-bold text-white theme-text-title">{stat.value}</span>
                     </div>
                     <div className="mt-2 text-sm">
-                      <span className={stat.trend === 'up' ? 'text-green-400 font-medium drop-shadow-[0_0_3px_rgba(74,222,128,0.5)]' : 'text-red-400 font-medium drop-shadow-[0_0_3px_rgba(248,113,113,0.5)]'}>
+                      <span className={stat.trend === 'up' ? 'text-emerald-400 font-medium' : 'text-rose-400 font-medium'}>
                         {stat.change}
                       </span>
-                      <span className="text-zinc-500 ml-1">vs last month</span>
+                      <span className="text-zinc-500 ml-1 text-xs">vs last month</span>
                     </div>
                   </div>
                 </div>
@@ -381,27 +381,27 @@ export function Dashboard() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               {/* Recent Orders */}
-              <div className="lg:col-span-2 bg-zinc-900 rounded-2xl border border-zinc-800 shadow-[0_0_15px_rgba(224,0,255,0.05)] overflow-hidden flex flex-col max-h-[500px]">
-                <div className="px-6 py-5 border-b border-zinc-800 flex justify-between items-center shrink-0">
-                  <h2 className="text-lg font-bold text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]">Recent Transactions</h2>
-                  <button className="text-sm text-fuchsia-400 font-medium hover:text-fuchsia-300 flex items-center transition-colors">
+              <div className="lg:col-span-2 bg-[#121215]/90 rounded-2xl border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.3)] overflow-hidden flex flex-col max-h-[500px] backdrop-blur-xl theme-card">
+                <div className="px-6 py-5 border-b border-white/10 flex justify-between items-center shrink-0 theme-modal-section">
+                  <h2 className="text-lg font-bold text-white theme-text-title">Recent Transactions</h2>
+                  <button className="text-sm text-indigo-400 font-medium hover:text-indigo-300 flex items-center transition-colors cursor-pointer">
                     View All <ArrowUpRight className="w-4 h-4 ml-1" />
                   </button>
                 </div>
                 <div className="overflow-x-auto overflow-y-auto flex-1">
                   <table className="w-full text-left border-collapse">
-                    <thead className="sticky top-0 bg-zinc-950">
+                    <thead className="sticky top-0 bg-black/80 backdrop-blur-md">
                       <tr>
-                        <th className="py-3 px-6 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">Order/Txn ID</th>
-                        <th className="py-3 px-6 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">User</th>
-                        <th className="py-3 px-6 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">Product</th>
-                        <th className="py-3 px-6 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800">Status</th>
-                        <th className="py-3 px-6 text-xs font-semibold text-zinc-500 uppercase tracking-wider border-b border-zinc-800 text-right">Keys</th>
+                        <th className="py-3 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Order/Txn ID</th>
+                        <th className="py-3 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">User</th>
+                        <th className="py-3 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Product</th>
+                        <th className="py-3 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Status</th>
+                        <th className="py-3 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10 text-right">Keys</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-zinc-800">
+                    <tbody className="divide-y divide-white/5">
                       {purchases.slice(0, 10).map((order) => (
-                        <tr key={order.id} className="hover:bg-zinc-800/50 transition-colors">
+                        <tr key={order.id} className="hover:bg-white/[0.03] transition-colors">
                           <td className="py-4 px-6 text-sm font-medium text-zinc-300">
                             <div>{order.id}</div>
                           </td>
@@ -409,13 +409,13 @@ export function Dashboard() {
                             <div>{order.userId === 'anonymous' ? 'Guest' : order.userId}</div>
                             <div className="text-xs text-zinc-500">{new Date(order.date).toLocaleString()}</div>
                           </td>
-                          <td className="py-4 px-6 text-sm text-zinc-400">{resolveProductName(order.category, settings.categories, inventory)} - {order.label}</td>
+                          <td className="py-4 px-6 text-sm text-zinc-300">{resolveProductName(order.category, settings.categories, inventory)} - {order.label}</td>
                           <td className="py-4 px-6 text-sm">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border bg-green-500/10 text-green-400 border-green-500/20 shadow-[0_0_10px_rgba(74,222,128,0.1)]`}>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border bg-emerald-950/50 text-emerald-400 border-emerald-500/20`}>
                               Completed
                             </span>
                           </td>
-                          <td className="py-4 px-6 text-sm font-medium text-white drop-shadow-[0_0_3px_rgba(255,255,255,0.3)] text-right">{order.keys.length}</td>
+                          <td className="py-4 px-6 text-sm font-medium text-white text-right theme-text-title">{order.keys.length}</td>
                         </tr>
                       ))}
                       {purchases.length === 0 && (

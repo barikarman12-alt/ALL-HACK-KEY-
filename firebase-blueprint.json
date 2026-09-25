@@ -57,6 +57,25 @@
         "read": "boolean",
         "date": "timestamp"
       }
+    },
+    "pendingOrders": {
+      "description": "Pending payment gateway orders for users, allowing auto-verification and auto-credit on re-login.",
+      "schema": {
+        "id": "string",
+        "orderId": "string",
+        "userId": "string",
+        "userEmail": "string",
+        "type": "string",
+        "amount": "number",
+        "status": "string",
+        "productName": "string",
+        "durationLabel": "string",
+        "durationValue": "string",
+        "quantity": "number",
+        "couponCode": "string",
+        "createdAt": "timestamp",
+        "updatedAt": "timestamp"
+      }
     }
   }
 }

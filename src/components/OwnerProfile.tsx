@@ -1,61 +1,54 @@
-import { Github, Twitter, Linkedin, Mail, Send } from 'lucide-react';
+import { Send, Mail, ShieldCheck, Sparkles } from 'lucide-react';
 import { useInventory } from '../store';
 
 export function OwnerProfile() {
   const { settings } = useInventory();
   
   return (
-    <section className="py-24 bg-zinc-950 border-t border-fuchsia-500/20">
+    <section className="py-12 sm:py-16 relative">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-zinc-900 border border-fuchsia-500/20 backdrop-blur-sm rounded-3xl p-8 md:p-12 shadow-[0_0_30px_rgba(224,0,255,0.1)] relative overflow-hidden">
-          {/* Background decorations */}
-          <div className="absolute top-0 right-0 -mr-20 -mt-20 w-64 h-64 bg-fuchsia-500/10 rounded-full blur-3xl"></div>
-          <div className="absolute bottom-0 left-0 -ml-20 -mb-20 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl"></div>
+        <div className="bg-[#121215]/80 border border-white/10 backdrop-blur-xl rounded-3xl p-6 sm:p-10 shadow-[0_10px_30px_rgba(0,0,0,0.5)] relative overflow-hidden theme-card">
           
-          <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-8">
+          <div className="relative z-10 flex flex-col md:flex-row items-center md:items-start gap-6 sm:gap-8">
             <div className="flex-shrink-0">
-              <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-fuchsia-500/30 overflow-hidden bg-zinc-800 flex items-center justify-center p-1 relative shadow-[0_0_20px_rgba(224,0,255,0.3)]">
-                <div className="w-full h-full rounded-full bg-gradient-to-tr from-fuchsia-500 to-purple-400 absolute inset-0 opacity-20"></div>
+              <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-2xl border border-white/15 overflow-hidden bg-zinc-900 flex items-center justify-center p-1 relative shadow-[0_8px_20px_rgba(0,0,0,0.6)]">
                 <img 
                   src="https://api.dicebear.com/7.x/avataaars/svg?seed=Felix&backgroundColor=b6e3f4" 
                   alt="Product Owner"
-                  className="w-full h-full rounded-full object-cover relative z-10 bg-zinc-900"
+                  className="w-full h-full rounded-xl object-cover relative z-10 bg-zinc-900"
                 />
               </div>
             </div>
             
             <div className="text-center md:text-left flex-grow">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-fuchsia-500/20 text-fuchsia-300 text-xs font-semibold mb-3 border border-fuchsia-500/30 shadow-[0_0_10px_rgba(224,0,255,0.2)]">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-fuchsia-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-fuchsia-500"></span>
-                </span>
-                Product Owner
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-950/50 text-indigo-300 text-xs font-semibold mb-2 border border-indigo-500/30 theme-pill">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                Verified Product Owner
               </div>
-              <h2 className="text-3xl md:text-4xl font-display font-bold text-white mb-2 drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]">Arman Barik</h2>
-              <p className="text-fuchsia-400 text-lg mb-6 font-medium drop-shadow-[0_0_5px_rgba(224,0,255,0.4)]">Founder & Lead Developer @ {settings.siteName || "ARMAN X STORE"}</p>
+              <h2 className="text-2xl sm:text-3xl font-display font-bold text-white mb-1 tracking-tight theme-text-title">Arman Barik</h2>
+              <p className="text-zinc-400 text-sm sm:text-base mb-4 font-medium theme-text-sub">Founder & Lead Developer @ {settings.siteName || "ARMAN X STORE"}</p>
               
-              <p className="text-zinc-300 mb-8 leading-relaxed max-w-2xl">
+              <p className="text-zinc-300 text-xs sm:text-sm mb-6 leading-relaxed max-w-2xl theme-text-sub">
                 Hi! I'm the creator behind {settings.siteName || "ARMAN X STORE"}. I specialize in building high-performance 
-                digital tools that help modern creators streamline their workflow. My goal is to craft 
-                software that isn't just functional, but genuinely a joy to use.
+                digital tools that help modern users streamline their experience. Instant, safe and verified key delivery 24/7.
               </p>
               
-              <div className="flex flex-wrap items-center justify-center md:justify-start gap-4">
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-3">
                 <a 
                   href="https://t.me/FATHERXSIR" 
                   target="_blank" 
                   rel="noopener noreferrer" 
-                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-sky-500 hover:from-blue-500 hover:to-sky-400 text-white font-bold text-sm transition-all hover:-translate-y-1 shadow-[0_0_15px_rgba(14,165,233,0.4)] flex items-center gap-2"
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-indigo-500 text-white font-bold text-xs sm:text-sm transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)] flex items-center gap-2 cursor-pointer active:scale-[0.98]"
                 >
                   <Send className="w-4 h-4" />
                   Contact Owner (@FATHERXSIR)
                 </a>
-                <a href="mailto:barikarman12@gmail.com" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]" title="Email Owner">
-                  <Mail className="w-5 h-5" />
-                </a>
-                <a href="https://t.me/FATHERXSIR" target="_blank" rel="noopener noreferrer" className="p-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-all hover:-translate-y-1 border border-zinc-700 hover:border-fuchsia-500/50 hover:shadow-[0_0_15px_rgba(224,0,255,0.3)]" title="Telegram Support">
-                  <Send className="w-5 h-5" />
+                <a 
+                  href="mailto:barikarman12@gmail.com" 
+                  className="p-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-all border border-white/10 hover:border-white/20 theme-pill" 
+                  title="Email Owner"
+                >
+                  <Mail className="w-4 h-4" />
                 </a>
               </div>
             </div>
