@@ -876,6 +876,16 @@ export const store = {
     if (record) {
       purchases = [record, ...purchases];
       syncPurchasesToStorage();
+      if (userId && userId !== 'anonymous') {
+        try {
+          const userKey = `user_orders_${userId}`;
+          const existing = JSON.parse(localStorage.getItem(userKey) || '[]');
+          if (!existing.includes((record as PurchaseRecord).id)) {
+            existing.unshift((record as PurchaseRecord).id);
+            localStorage.setItem(userKey, JSON.stringify(existing.slice(0, 100)));
+          }
+        } catch (e) {}
+      }
       if (meta?.couponCode) {
         const codeUpper = meta.couponCode.trim().toUpperCase();
         coupons = coupons.map(c => {
@@ -1598,12 +1608,27 @@ export function useCoupons() {
   };
 }
 
-export function useInventory(userId?: string) {
+export function useInventory(userId?: string, userEmail?: string) {
   const [items, setItems] = useState(store.getInventory());
   const [settingsState, setSettingsState] = useState(store.getSettings());
   const [purchasesState, setPurchasesState] = useState<PurchaseRecord[]>([]);
   const [allPurchasesState, setAllPurchasesState] = useState<PurchaseRecord[]>(store.getPurchases());
   const [isInitialized, setIsInitialized] = useState(store.isInitialized());
+
+  const getFilteredUserPurchases = (): PurchaseRecord[] => {
+    if (!userId && !userEmail) {
+      return [];
+    }
+    const all = store.getPurchases();
+    const cleanEmail = (userEmail || '').trim().toLowerCase();
+    const cleanUid = (userId || '').trim();
+
+    return all.filter(p => {
+      if (cleanUid && p.userId && p.userId === cleanUid) return true;
+      if (cleanEmail && p.userEmail && p.userEmail.trim().toLowerCase() === cleanEmail) return true;
+      return false;
+    });
+  };
 
   useEffect(() => {
     return store.subscribe(() => {
@@ -1611,24 +1636,14 @@ export function useInventory(userId?: string) {
       setSettingsState(store.getSettings());
       setIsInitialized(store.isInitialized());
       setAllPurchasesState(store.getPurchases());
-      if (userId) {
-         const userPurchases = store.getPurchases().filter(p => p.userId === userId);
-         setPurchasesState(userPurchases);
-      } else {
-         setPurchasesState(store.getPurchases());
-      }
+      setPurchasesState(getFilteredUserPurchases());
     });
-  }, [userId]);
+  }, [userId, userEmail]);
 
   useEffect(() => {
     setAllPurchasesState(store.getPurchases());
-    if (userId) {
-      const userPurchases = store.getPurchases().filter(p => p.userId === userId);
-      setPurchasesState(userPurchases);
-    } else {
-      setPurchasesState(store.getPurchases());
-    }
-  }, [userId]);
+    setPurchasesState(getFilteredUserPurchases());
+  }, [userId, userEmail]);
 
   return {
     items,

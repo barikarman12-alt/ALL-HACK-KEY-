@@ -7,10 +7,6 @@ import {
   updateProfile, 
   signOut,
   onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
   sendPasswordResetEmail,
   User as FirebaseUser
 } from 'firebase/auth';
@@ -28,22 +24,9 @@ export function useAuth() {
 
   useEffect(() => {
     let mounted = true;
-    
-    // Check for redirect result when the component mounts
-    const checkRedirectResult = async () => {
-      try {
-        const result = await getRedirectResult(auth);
-        if (result && mounted) {
-           sessionStorage.removeItem('isGoogleLoginPending');
-        }
-      } catch (error) {
-        console.error("Google Sign-in redirect error:", error);
-        sessionStorage.removeItem('isGoogleLoginPending');
-      }
-    };
-    checkRedirectResult();
 
     const unsubscribe = onAuthStateChanged(auth, (user: FirebaseUser | null) => {
+      if (!mounted) return;
       if (user) {
         const customId = user.email?.split('@')[0] || user.uid.substring(0, 8);
         const displayName = user.displayName || customId;
@@ -67,8 +50,6 @@ export function useAuth() {
           createdAt: user.metadata?.creationTime || new Date().toISOString(),
           lastLoginAt: new Date().toISOString()
         });
-
-        sessionStorage.removeItem('isGoogleLoginPending');
       } else {
         setCurrentUser(null);
       }
@@ -93,35 +74,83 @@ export const logOutMock = async () => {
 };
 
 export const loginWithIdMock = async (id: string, password: string) => {
-  const email = id.includes('@') ? id : `${id}@armanxstore.com`.toLowerCase();
-  
-  try {
-    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
-    const customId = id;
-    const displayName = user.displayName || customId;
+  const cleanId = (id || '').trim().toLowerCase();
+  if (!cleanId) throw { code: 'auth/invalid-email', message: 'Please enter your email or username.' };
+  if (!password) throw { code: 'auth/wrong-password', message: 'Please enter your password.' };
 
-    store.registerOrUpdateUser({
-      uid: user.uid,
-      email: user.email || email,
-      displayName,
-      customId,
-      lastLoginAt: new Date().toISOString()
-    });
+  // Candidate emails to attempt
+  const candidateEmails: string[] = [];
 
-    return {
-      uid: user.uid,
-      email: user.email,
-      displayName,
-      customId: id
-    };
-  } catch (error: any) {
-    throw { code: error.code, message: error.message || 'Invalid credentials.' };
+  if (cleanId.includes('@')) {
+    candidateEmails.push(cleanId);
+  } else {
+    // 1. Search registered users in store
+    const users = store.getUsers();
+    const matched = users.find(u => 
+      (u.customId && u.customId.toLowerCase() === cleanId) ||
+      (u.displayName && u.displayName.toLowerCase() === cleanId) ||
+      (u.email && u.email.toLowerCase().split('@')[0] === cleanId)
+    );
+    if (matched && matched.email) {
+      candidateEmails.push(matched.email.toLowerCase());
+    }
+
+    // 2. Default store domain fallback
+    candidateEmails.push(`${cleanId}@armanxstore.com`);
+    candidateEmails.push(`${cleanId}@gmail.com`);
   }
+
+  let lastError: any = null;
+
+  for (const email of candidateEmails) {
+    try {
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+      const customId = user.email?.split('@')[0] || cleanId;
+      const displayName = user.displayName || customId;
+
+      store.registerOrUpdateUser({
+        uid: user.uid,
+        email: user.email || email,
+        displayName,
+        customId,
+        lastLoginAt: new Date().toISOString()
+      });
+
+      return {
+        uid: user.uid,
+        email: user.email,
+        displayName,
+        customId
+      };
+    } catch (err: any) {
+      lastError = err;
+      // If error is wrong password or too many requests, stop early
+      if (err?.code === 'auth/wrong-password' || err?.code === 'auth/too-many-requests') {
+        break;
+      }
+    }
+  }
+
+  const code = lastError?.code || 'auth/invalid-credential';
+  let message = 'Invalid email/username or password.';
+  if (code === 'auth/invalid-credential' || code === 'auth/user-not-found' || code === 'auth/wrong-password') {
+    message = 'Invalid email/username or password. If you are new, please register first.';
+  } else if (code === 'auth/too-many-requests') {
+    message = 'Too many failed login attempts. Please wait 1 minute before trying again.';
+  } else if (lastError?.message) {
+    message = lastError.message;
+  }
+
+  throw { code, message };
 };
 
 export const registerWithIdMock = async (id: string, password: string, name?: string) => {
-  const email = id.includes('@') ? id : `${id}@armanxstore.com`.toLowerCase();
+  const cleanId = (id || '').trim().toLowerCase();
+  if (!cleanId) throw { code: 'auth/invalid-email', message: 'Please enter an email or username.' };
+  if (!password || password.length < 6) throw { code: 'auth/weak-password', message: 'Password must be at least 6 characters.' };
+
+  const email = cleanId.includes('@') ? cleanId : `${cleanId}@armanxstore.com`;
   
   try {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -131,14 +160,15 @@ export const registerWithIdMock = async (id: string, password: string, name?: st
       await updateProfile(user, { displayName: name });
     }
     
-    const displayName = name || user.displayName || id;
+    const customId = cleanId.includes('@') ? cleanId.split('@')[0] : cleanId;
+    const displayName = name || user.displayName || customId;
     const role = (email === 'barikarman12@gmail.com' || email === 'barikarman207@gmail.com' || email.includes('barikarman')) ? 'owner' : 'customer';
 
     await store.registerOrUpdateUser({
       uid: user.uid,
       email: user.email || email,
       displayName,
-      customId: id,
+      customId,
       role,
       createdAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString(),
@@ -149,16 +179,26 @@ export const registerWithIdMock = async (id: string, password: string, name?: st
       uid: user.uid,
       email: user.email,
       displayName,
-      customId: id
+      customId
     };
   } catch (error: any) {
-    throw { code: error.code, message: error.message || 'Registration failed.' };
+    let message = error.message || 'Registration failed.';
+    if (error.code === 'auth/email-already-in-use') {
+      message = 'An account with this email or username already exists. Please Log In.';
+    } else if (error.code === 'auth/weak-password') {
+      message = 'Password is too weak. Please use at least 6 characters.';
+    }
+    throw { code: error.code, message };
   }
 };
 
 export const resetPassword = async (email: string) => {
+  const cleanEmail = (email || '').trim();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    throw { code: 'auth/invalid-email', message: 'Please enter a valid email address with @.' };
+  }
   try {
-    await sendPasswordResetEmail(auth, email);
+    await sendPasswordResetEmail(auth, cleanEmail);
   } catch (error: any) {
     throw { code: error.code, message: error.message || 'Failed to send password reset email.' };
   }

@@ -9,7 +9,7 @@ interface PurchaseHistoryModalProps {
 
 export function PurchaseHistoryModal({ onClose }: PurchaseHistoryModalProps) {
   const { currentUser } = useAuth();
-  const { purchases, allPurchases, settings, items } = useInventory(currentUser?.uid);
+  const { purchases, allPurchases, settings, items } = useInventory(currentUser?.uid, currentUser?.email || undefined);
   
   const isOwner = currentUser?.email?.includes('barikarman') || 
     ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || 

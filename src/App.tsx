@@ -5,15 +5,15 @@ import { OwnerProfile } from './components/OwnerProfile';
 import { Footer } from './components/Footer';
 import { SupportChat } from './components/SupportChat';
 import { Dashboard } from './components/Dashboard';
-import { PurchaseHistoryModal } from './components/PurchaseHistoryModal';
 import { Login } from './components/Login';
 import { KeyReceivedPage, KeyReceivedData } from './components/KeyReceivedPage';
 import { VerifyPaymentPage } from './components/VerifyPaymentPage';
+import { KeyHistoryPage } from './components/KeyHistoryPage';
 import { PaymentWatcher } from './components/PaymentWatcher';
 import { useAuth } from './lib/useAuth';
 import { ThemeProvider } from './lib/theme';
 
-export type PageRoute = 'home' | 'dashboard' | 'login' | 'key-received' | 'verify-payment';
+export type PageRoute = 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received' | 'verify-payment';
 
 function AppContent() {
   const [currentPage, setCurrentPage] = useState<PageRoute>(() => {
@@ -22,13 +22,18 @@ function AppContent() {
     if (path === '/verify-payment' || path === '/success' || params.get('order_id') || params.get('orderId')) {
       return 'verify-payment';
     }
+    if (path === '/key-history' || path === '/keys' || path === '/my-keys') {
+      return 'key-history';
+    }
     if (path === '/login' || path === '/register' || path === '/signup') {
       return 'login';
+    }
+    if (path === '/dashboard') {
+      return 'dashboard';
     }
     return 'home';
   });
 
-  const [showPurchases, setShowPurchases] = useState(false);
   const [receivedKeyData, setReceivedKeyData] = useState<KeyReceivedData | null>(null);
   const { currentUser } = useAuth();
   
@@ -38,6 +43,8 @@ function AppContent() {
       const params = new URLSearchParams(window.location.search);
       if (path === '/verify-payment' || path === '/success' || params.get('order_id') || params.get('orderId')) {
         setCurrentPage('verify-payment');
+      } else if (path === '/key-history' || path === '/keys' || path === '/my-keys') {
+        setCurrentPage('key-history');
       } else if (path === '/dashboard') {
         setCurrentPage('dashboard');
       } else if (path === '/login' || path === '/register' || path === '/signup') {
@@ -83,22 +90,27 @@ function AppContent() {
     setCurrentPage('home');
   };
 
+  const navigateTo = (route: PageRoute) => {
+    const targetPath = route === 'home' ? '/' : `/${route}`;
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', targetPath);
+    }
+    setCurrentPage(route);
+  };
+
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-300">
       <Header 
-        currentPage={currentPage === 'verify-payment' ? 'home' : currentPage} 
-        onNavigate={(p) => {
-          if (p === 'home') navigateToHome();
-          else setCurrentPage(p);
-        }}
-        onShowPurchases={() => setCurrentPage('key-received')}
+        currentPage={currentPage} 
+        onNavigate={navigateTo}
+        onShowPurchases={() => navigateTo('key-history')}
       />
       
       {currentPage === 'verify-payment' ? (
         <main>
           <VerifyPaymentPage 
             onBackToHome={navigateToHome}
-            onViewPurchases={() => setCurrentPage('key-received')}
+            onViewPurchases={() => navigateTo('key-history')}
           />
         </main>
       ) : currentPage === 'key-received' ? (
@@ -106,13 +118,21 @@ function AppContent() {
           <KeyReceivedPage 
             data={receivedKeyData}
             onBackToHome={navigateToHome}
+            onViewKeyHistory={() => navigateTo('key-history')}
+          />
+        </main>
+      ) : currentPage === 'key-history' ? (
+        <main>
+          <KeyHistoryPage 
+            onBackToHome={navigateToHome}
+            onBuyMore={navigateToHome}
           />
         </main>
       ) : currentPage === 'home' || (!isOwner && currentPage === 'dashboard') ? (
         <main className="pt-20">
           <Pricing 
             onPurchaseSuccess={handlePurchaseSuccess} 
-            onRequiresLogin={() => setCurrentPage('login')} 
+            onRequiresLogin={() => navigateTo('login')} 
           />
           <OwnerProfile />
         </main>
@@ -129,12 +149,9 @@ function AppContent() {
         </main>
       )}
       
-      {(currentPage === 'home' || currentPage === 'key-received' || currentPage === 'verify-payment' || (!isOwner && currentPage === 'dashboard')) && <Footer />}
+      {(currentPage === 'home' || currentPage === 'key-history' || currentPage === 'key-received' || currentPage === 'verify-payment' || (!isOwner && currentPage === 'dashboard')) && <Footer />}
       <SupportChat />
       <PaymentWatcher onKeyReceived={handlePurchaseSuccess} />
-      {showPurchases && (
-        <PurchaseHistoryModal onClose={() => setShowPurchases(false)} />
-      )}
     </div>
   );
 }

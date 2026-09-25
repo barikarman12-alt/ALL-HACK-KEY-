@@ -1,19 +1,15 @@
 import React, { useState } from 'react';
 import { 
-  Shield, 
   User, 
-  KeyRound, 
   Mail, 
   ArrowLeft, 
-  ArrowRight, 
   Eye, 
   EyeOff, 
   CheckCircle2, 
-  Sparkles,
-  Lock,
-  UserPlus,
+  Lock, 
+  UserPlus, 
   LogIn as LogInIcon,
-  HelpCircle
+  AlertCircle
 } from 'lucide-react';
 import { registerWithIdMock, loginWithIdMock, resetPassword } from '../lib/useAuth';
 
@@ -23,11 +19,11 @@ interface LoginProps {
 }
 
 export function Login({ onBack, defaultView = 'register' }: LoginProps) {
-  // Default to Register first, as requested
   const [view, setView] = useState<'register' | 'login' | 'forgot'>(defaultView);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [showRegisterPrompt, setShowRegisterPrompt] = useState(false);
 
   // Form states
   const [name, setName] = useState('');
@@ -41,6 +37,7 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
     setView(newView);
     setError('');
     setSuccess('');
+    setShowRegisterPrompt(false);
   };
 
   // 1. REGISTER NEW ACCOUNT
@@ -48,6 +45,7 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setShowRegisterPrompt(false);
 
     const cleanInput = emailOrUsername.toLowerCase().trim();
     if (!cleanInput) {
@@ -74,9 +72,7 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
         onBack();
       }, 800);
     } catch (err: any) {
-      console.warn('Registration notice:', err?.code || err?.message);
       if (err?.code === 'auth/email-already-in-use') {
-        // Attempt automatic login with the provided credentials
         try {
           await loginWithIdMock(cleanInput, password);
           setSuccess('Account already exists. Logged in successfully!');
@@ -85,9 +81,8 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
           }, 800);
           return;
         } catch (loginErr: any) {
-          // If password was incorrect, switch to Login view smoothly
           setView('login');
-          setError('This account already exists. Please enter your password to Log In, or use Forgot Password.');
+          setError('This account already exists. Please enter your password to Log In.');
         }
       } else if (err?.code === 'auth/invalid-email') {
         setError('Please enter a valid email address.');
@@ -106,6 +101,7 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
     e.preventDefault();
     setError('');
     setSuccess('');
+    setShowRegisterPrompt(false);
 
     const cleanInput = emailOrUsername.toLowerCase().trim();
     if (!cleanInput) {
@@ -127,13 +123,13 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
         onBack();
       }, 800);
     } catch (err: any) {
-      console.error('Login error:', err);
       if (err?.code === 'auth/invalid-credential' || err?.code === 'auth/user-not-found' || err?.code === 'auth/wrong-password') {
-        setError('Invalid email or password. If you are new, please Sign Up first.');
+        setError('Invalid credentials or account does not exist.');
+        setShowRegisterPrompt(true);
       } else if (err?.code === 'auth/too-many-requests') {
-        setError('Too many failed attempts. Please wait 1 minute or reset password.');
+        setError('Too many failed attempts. Please wait 1 minute before trying again.');
       } else {
-        setError(err.message || 'Login failed. Please check credentials.');
+        setError(err.message || 'Login failed. Please check your credentials.');
       }
     } finally {
       setIsLoading(false);
@@ -148,17 +144,17 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
 
     const cleanEmail = emailOrUsername.trim();
     if (!cleanEmail || !cleanEmail.includes('@')) {
-      setError('Please enter a valid email address to receive password reset link.');
+      setError('Please enter a valid email address with @ to receive password reset link.');
       return;
     }
 
     setIsLoading(true);
     try {
       await resetPassword(cleanEmail);
-      setSuccess(`Password reset email sent to ${cleanEmail}. Check your inbox/spam folder.`);
+      setSuccess(`Password reset email sent to ${cleanEmail}. Check your inbox or spam folder.`);
     } catch (err: any) {
       if (err?.code === 'auth/user-not-found') {
-        setError('No account found with this email. Please Sign Up.');
+        setError('No account found with this email. Please Sign Up first.');
       } else {
         setError(err.message || 'Failed to send password reset email.');
       }
@@ -170,7 +166,7 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
   return (
     <div className="min-h-screen bg-[#09090b] text-white flex items-center justify-center p-4 sm:p-6 relative overflow-hidden transition-colors duration-300 theme-section">
       
-      {/* Subtle Glow Backdrop */}
+      {/* Glow Backdrop */}
       <div className="absolute top-1/4 -left-32 w-80 h-80 bg-indigo-600/10 rounded-full blur-[140px] pointer-events-none" />
       <div className="absolute bottom-1/4 -right-32 w-80 h-80 bg-violet-600/10 rounded-full blur-[140px] pointer-events-none" />
 
@@ -231,15 +227,31 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
           </h2>
           <p className="text-xs sm:text-sm text-zinc-400 theme-text-sub">
             {view === 'register' && 'Sign up in seconds to access VIP digital keys & wallet.'}
-            {view === 'login' && 'Enter your credentials to manage keys and balance.'}
+            {view === 'login' && 'Enter your credentials to access your keys and balance.'}
             {view === 'forgot' && 'Enter your registered email to receive a reset link.'}
           </p>
         </div>
 
         {/* Status Alerts */}
         {error && (
-          <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-xl text-rose-300 text-xs sm:text-sm font-medium text-center animate-in fade-in">
-            {error}
+          <div className="mb-4 p-3.5 bg-rose-500/10 border border-rose-500/30 rounded-2xl text-rose-300 text-xs sm:text-sm space-y-2 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+              <span>{error}</span>
+            </div>
+            {showRegisterPrompt && (
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmPassword(password);
+                  switchView('register');
+                }}
+                className="w-full py-2 px-3 bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 rounded-xl text-white text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>New here? Register with these credentials now →</span>
+              </button>
+            )}
           </div>
         )}
 
@@ -363,7 +375,11 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
                   type="text"
                   required
                   value={emailOrUsername}
-                  onChange={(e) => setEmailOrUsername(e.target.value)}
+                  onChange={(e) => {
+                    setEmailOrUsername(e.target.value);
+                    if (error) setError('');
+                    if (showRegisterPrompt) setShowRegisterPrompt(false);
+                  }}
                   placeholder="you@gmail.com or username"
                   className="w-full pl-10 pr-4 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
                 />
@@ -389,7 +405,11 @@ export function Login({ onBack, defaultView = 'register' }: LoginProps) {
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    if (error) setError('');
+                    if (showRegisterPrompt) setShowRegisterPrompt(false);
+                  }}
                   placeholder="••••••••"
                   className="w-full pl-10 pr-10 py-3 bg-[#18181c]/80 border border-white/10 rounded-xl text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 transition-all font-mono theme-input"
                 />

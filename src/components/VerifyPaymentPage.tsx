@@ -63,7 +63,7 @@ interface VerifyPaymentPageProps {
 
 export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPaymentPageProps) {
   const { currentUser } = useAuth();
-  const { items, settings, purchases, purchaseKeys } = useInventory(currentUser?.uid);
+  const { items, settings, purchases, purchaseKeys } = useInventory(currentUser?.uid, currentUser?.email || undefined);
   const { addBalance } = useBalance(currentUser?.uid);
 
   // Extract order ID from URL parameters
