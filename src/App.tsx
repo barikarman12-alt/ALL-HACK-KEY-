@@ -10,6 +10,7 @@ import { KeyReceivedPage, KeyReceivedData } from './components/KeyReceivedPage';
 import { VerifyPaymentPage } from './components/VerifyPaymentPage';
 import { KeyHistoryPage } from './components/KeyHistoryPage';
 import { PaymentWatcher } from './components/PaymentWatcher';
+import { GlobalLoadingBar } from './components/Skeletons';
 import { useAuth } from './lib/useAuth';
 import { ThemeProvider } from './lib/theme';
 
@@ -35,7 +36,7 @@ function AppContent() {
   });
 
   const [receivedKeyData, setReceivedKeyData] = useState<KeyReceivedData | null>(null);
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth();
   
   useEffect(() => {
     const syncRouteFromLocation = () => {
@@ -100,6 +101,7 @@ function AppContent() {
 
   return (
     <div className="min-h-screen font-sans selection:bg-indigo-500 selection:text-white transition-colors duration-300">
+      <GlobalLoadingBar isLoading={authLoading} />
       <Header 
         currentPage={currentPage} 
         onNavigate={navigateTo}

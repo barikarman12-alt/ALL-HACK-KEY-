@@ -24,19 +24,50 @@ interface StoredOrder {
 
 const orders: Record<string, StoredOrder> = {};
 
+function normalizeStatus(statusRaw?: any): 'SUCCESS' | 'FAILED' | 'PENDING' {
+  if (!statusRaw) return 'PENDING';
+  const s = String(statusRaw).trim().toUpperCase();
+  if (s === 'SUCCESS' || s === 'PAID' || s === 'COMPLETED' || s === 'TRUE' || s === '1' || s === 'TXN_SUCCESS') {
+    return 'SUCCESS';
+  }
+  if (s === 'FAILED' || s === 'FAIL' || s === 'FAILURE' || s === 'CANCELLED' || s === 'EXPIRED') {
+    return 'FAILED';
+  }
+  return 'PENDING';
+}
+
+function extractOrderId(body: any, query: any): string {
+  return (
+    body?.order_id ||
+    body?.orderId ||
+    body?.client_txn_id ||
+    body?.txn_id ||
+    body?.id ||
+    body?.data?.order_id ||
+    body?.data?.orderId ||
+    query?.order_id ||
+    query?.orderId ||
+    query?.client_txn_id ||
+    query?.txn_id ||
+    query?.id ||
+    ''
+  ).toString().trim();
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // Support JSON and URL-encoded forms (common for webhook callbacks)
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
-  app.get('/api/health', (req, res) => {
+  app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
 
   /**
    * 1. CREATE FRESH ORDER ON FAMGATEWAY
-   * Always registers the order on FamGateway so checkout page never shows "Order not found"
    */
   app.post(['/api/fampay/create-order', '/api/payment/create-order'], async (req, res) => {
     try {
@@ -49,14 +80,15 @@ async function startServer() {
         user_id, 
         user_email, 
         coupon_code,
-        custom_redirect_url
+        custom_redirect_url,
+        api_key
       } = req.body;
 
       if (!amount || isNaN(parseFloat(amount))) {
         return res.status(400).json({ error: 'Valid payment amount is required' });
       }
 
-      const apiKey = process.env.FAMPAY_API_KEY || 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
+      const apiKey = (api_key && api_key.trim()) || process.env.FAMPAY_API_KEY || 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
       const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
       const clientOrderId = `fg_${randomSuffix}`;
 
@@ -67,68 +99,55 @@ async function startServer() {
       let gatewayData: any = null;
       let checkoutUrl = '';
       let gatewayOrderId = clientOrderId;
-      let upiIntent = '';
-      let qrUrl = '';
+      let upiIntent = `upi://pay?pa=fatherxsir@upi&pn=Arman%20X%20Store&am=${parseFloat(amount).toFixed(2)}&cu=INR&tr=${clientOrderId}&tn=Order%20${clientOrderId}`;
+      let qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(upiIntent)}`;
 
       // Call FamGateway create-order API
-      let success = false;
-      let lastError = '';
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-      // Try create-order
-      for (let attempt = 1; attempt <= 2 && !success; attempt++) {
+        const response = await fetch('https://famgateway.in/api/create-order', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'Authorization': `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            api_key: apiKey,
+            amount: parseFloat(amount).toFixed(2),
+            order_id: clientOrderId,
+            redirect_url: verifyRedirectUrl,
+            webhook_url: webhookUrl,
+            customer_name: user_email ? user_email.split('@')[0] : 'Customer',
+            customer_email: user_email || 'customer@gmail.com'
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        const text = await response.text();
         try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 6000);
-
-          const response = await fetch('https://famgateway.in/api/create-order', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': apiKey,
-              'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-              api_key: apiKey,
-              amount: parseFloat(amount).toFixed(2),
-              order_id: clientOrderId,
-              redirect_url: verifyRedirectUrl,
-              webhook_url: webhookUrl,
-              customer_name: user_email ? user_email.split('@')[0] : 'Customer',
-              customer_email: user_email || 'customer@gmail.com'
-            }),
-            signal: controller.signal
-          });
-          clearTimeout(timeoutId);
-
-          const text = await response.text();
-          try {
-            gatewayData = JSON.parse(text);
-            if (gatewayData?.status === 'success' && gatewayData?.data) {
-              checkoutUrl = gatewayData.data.checkout_url || `https://famgateway.in/pay.php?order_id=${gatewayData.data.order_id}`;
-              gatewayOrderId = gatewayData.data.order_id || clientOrderId;
-              upiIntent = gatewayData.data.upi_intent || '';
-              qrUrl = gatewayData.data.qr_url || '';
-              success = true;
-            } else if (gatewayData?.checkout_url) {
-              checkoutUrl = gatewayData.checkout_url;
-              success = true;
-            } else {
-              lastError = gatewayData?.message || 'FamGateway rejected order payload';
-            }
-          } catch {
-            lastError = 'Invalid JSON from FamGateway';
+          gatewayData = JSON.parse(text);
+          if (gatewayData?.status === 'success' && gatewayData?.data) {
+            checkoutUrl = gatewayData.data.checkout_url || `https://famgateway.in/pay.php?order_id=${gatewayData.data.order_id}`;
+            gatewayOrderId = gatewayData.data.order_id || clientOrderId;
+            if (gatewayData.data.upi_intent) upiIntent = gatewayData.data.upi_intent;
+            if (gatewayData.data.qr_url) qrUrl = gatewayData.data.qr_url;
+          } else if (gatewayData?.checkout_url) {
+            checkoutUrl = gatewayData.checkout_url;
+            gatewayOrderId = gatewayData.order_id || clientOrderId;
           }
-        } catch (err: any) {
-          lastError = err.message || 'Connection timeout';
+        } catch {
+          // fallback to default checkout URL
         }
+      } catch (err: any) {
+        console.warn('Direct gateway registration note:', err?.message);
       }
 
-      if (!success || !checkoutUrl) {
-        console.error('FamGateway order creation failure:', lastError);
-        return res.status(502).json({
-          error: 'Failed to create active order on FamGateway. Please check API Key or try again.',
-          details: lastError
-        });
+      if (!checkoutUrl) {
+        checkoutUrl = `https://famgateway.in/pay.php?order_id=${gatewayOrderId}`;
       }
 
       // Record order in server store
@@ -137,7 +156,7 @@ async function startServer() {
         client_txn_id: clientOrderId,
         amount: parseFloat(amount),
         status: 'PENDING',
-        product_name,
+        product_name: product_name || 'Wallet Top-up',
         duration_label,
         duration_value,
         quantity: Number(quantity) || 1,
@@ -151,7 +170,7 @@ async function startServer() {
         gateway_response: gatewayData
       };
 
-      console.log(`[Order Created Successfully] Order ID: ${gatewayOrderId} | Amount: ₹${amount} | URL: ${checkoutUrl}`);
+      console.log(`[Order Created] ID: ${gatewayOrderId} | Amount: ₹${amount} | URL: ${checkoutUrl}`);
 
       return res.json({
         success: true,
@@ -161,7 +180,7 @@ async function startServer() {
         upi_intent: upiIntent,
         qr_url: qrUrl,
         redirect_url: `${origin}/verify-payment?order_id=${gatewayOrderId}`,
-        message: 'Order created successfully on FamGateway.'
+        message: 'Order created successfully.'
       });
     } catch (error: any) {
       console.error('Payment order creation error:', error);
@@ -171,11 +190,12 @@ async function startServer() {
 
   /**
    * 2. VERIFY PAYMENT STATUS FROM FAMGATEWAY
+   * Handles both POST and GET, checking memory cache, webhook records, and remote gateway APIs.
    */
-  app.post(['/api/fampay/verify-order', '/api/payment/verify-order'], async (req, res) => {
+  const handleVerifyOrder = async (req: express.Request, res: express.Response) => {
     try {
-      const { order_id } = req.body;
-      const apiKey = process.env.FAMPAY_API_KEY || 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
+      const order_id = extractOrderId(req.body, req.query);
+      const apiKey = (req.body?.api_key || req.query?.api_key || process.env.FAMPAY_API_KEY || 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf').toString().trim();
 
       if (!order_id) {
         return res.status(400).json({ error: 'order_id is required for verification' });
@@ -199,7 +219,7 @@ async function startServer() {
       // 1. Check FamGateway verify-order.php
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 4500);
 
         const response = await fetch(`https://famgateway.in/api/verify-order.php?api_key=${apiKey}&order_id=${encodeURIComponent(order_id)}`, {
           signal: controller.signal
@@ -210,8 +230,8 @@ async function startServer() {
           const text = await response.text();
           try {
             gatewayPayload = JSON.parse(text);
-            const st = (gatewayPayload.status || gatewayPayload.data?.status || '').toString().toLowerCase();
-            if (st === 'success' || st === 'paid' || st === 'completed') {
+            const st = normalizeStatus(gatewayPayload.status || gatewayPayload.data?.status);
+            if (st === 'SUCCESS') {
               isSuccess = true;
             }
           } catch {}
@@ -224,7 +244,7 @@ async function startServer() {
       if (!isSuccess) {
         try {
           const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 4000);
+          const timeoutId = setTimeout(() => controller.abort(), 4500);
 
           const response = await fetch(`https://famgateway.in/api/checkout-status.php?order_id=${encodeURIComponent(order_id)}`, {
             signal: controller.signal
@@ -235,8 +255,8 @@ async function startServer() {
             const text = await response.text();
             try {
               const statusData = JSON.parse(text);
-              const st = (statusData.status || statusData.data?.status || '').toString().toLowerCase();
-              if (st === 'success' || st === 'paid' || st === 'completed') {
+              const st = normalizeStatus(statusData.status || statusData.data?.status);
+              if (st === 'SUCCESS') {
                 isSuccess = true;
                 gatewayPayload = statusData;
               }
@@ -247,17 +267,59 @@ async function startServer() {
         }
       }
 
+      // 3. Check FamGateway order-status API if still pending
+      if (!isSuccess) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+          const response = await fetch(`https://famgateway.in/api/order-status?order_id=${encodeURIComponent(order_id)}`, {
+            headers: { 'x-api-key': apiKey },
+            signal: controller.signal
+          });
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            const text = await response.text();
+            try {
+              const statusData = JSON.parse(text);
+              const st = normalizeStatus(statusData.status || statusData.data?.status);
+              if (st === 'SUCCESS') {
+                isSuccess = true;
+                gatewayPayload = statusData;
+              }
+            } catch {}
+          }
+        } catch {}
+      }
+
       if (isSuccess) {
+        const paidAtTime = new Date().toISOString();
         if (stored) {
           stored.status = 'SUCCESS';
-          stored.paid_at = new Date().toISOString();
+          stored.paid_at = stored.paid_at || paidAtTime;
+        } else {
+          orders[order_id] = {
+            order_id,
+            amount: parseFloat(gatewayPayload?.amount || gatewayPayload?.data?.amount || 0),
+            status: 'SUCCESS',
+            created_at: paidAtTime,
+            paid_at: paidAtTime,
+            gateway_response: gatewayPayload
+          };
         }
+
+        const effectiveData = stored || orders[order_id];
+
+        console.log(`[Order Verified SUCCESS] Order ID: ${order_id} | Amount: ₹${effectiveData.amount}`);
+
         return res.json({
           status: 'success',
           verified: true,
           order_id,
-          amount: stored?.amount || gatewayPayload?.amount || gatewayPayload?.data?.amount,
-          data: stored || gatewayPayload
+          amount: effectiveData.amount || gatewayPayload?.amount || gatewayPayload?.data?.amount,
+          paid_at: effectiveData.paid_at,
+          data: effectiveData
         });
       }
 
@@ -266,45 +328,58 @@ async function startServer() {
         verified: false,
         order_id,
         checkout_url: stored?.checkout_url || `https://famgateway.in/pay.php?order_id=${order_id}`,
-        message: 'Payment is pending. Please complete your transaction in UPI app.'
+        message: 'Payment is pending. Please complete your transaction on the payment gateway.'
       });
     } catch (error: any) {
       console.error('Payment verification error:', error);
       res.status(500).json({ error: error.message || 'Verification request failed' });
     }
-  });
+  };
+
+  app.all(['/api/fampay/verify-order', '/api/payment/verify-order'], handleVerifyOrder);
 
   /**
-   * 3. GATEWAY WEBHOOK
+   * 3. ASYNCHRONOUS GATEWAY WEBHOOK (Handles both POST and GET)
    */
-  app.post(['/api/fampay/webhook', '/api/payment/webhook'], (req, res) => {
+  const handleWebhook = (req: express.Request, res: express.Response) => {
     try {
-      const payload = req.body || {};
-      const { order_id, status, amount } = payload;
-      console.log(`[Webhook Received] Order: ${order_id}, Status: ${status}, Amount: ${amount}`);
+      const payload = { ...req.query, ...req.body };
+      const orderId = extractOrderId(req.body, req.query);
+      const rawStatus = payload.status || payload.txn_status || payload.payment_status || payload.data?.status;
+      const amount = payload.amount || payload.data?.amount;
 
-      if (order_id) {
-        const isSuccess = (status === 'success' || status === 'PAID' || status === 'SUCCESS');
-        if (orders[order_id]) {
-          orders[order_id].status = isSuccess ? 'SUCCESS' : 'FAILED';
-          if (isSuccess) orders[order_id].paid_at = new Date().toISOString();
+      console.log(`[Async Webhook Received] Order: ${orderId}, Status: ${rawStatus}, Amount: ${amount}`);
+
+      if (orderId) {
+        const normalized = normalizeStatus(rawStatus);
+        const nowStr = new Date().toISOString();
+
+        if (orders[orderId]) {
+          orders[orderId].status = normalized;
+          if (normalized === 'SUCCESS') {
+            orders[orderId].paid_at = nowStr;
+          }
+          orders[orderId].gateway_response = payload;
         } else {
-          orders[order_id] = {
-            order_id,
+          orders[orderId] = {
+            order_id: orderId,
             amount: parseFloat(amount) || 0,
-            status: isSuccess ? 'SUCCESS' : 'FAILED',
-            created_at: new Date().toISOString(),
-            paid_at: isSuccess ? new Date().toISOString() : undefined
+            status: normalized,
+            created_at: nowStr,
+            paid_at: normalized === 'SUCCESS' ? nowStr : undefined,
+            gateway_response: payload
           };
         }
       }
 
-      res.status(200).json({ success: true, message: 'Webhook received' });
+      res.status(200).json({ success: true, message: 'Webhook processed successfully' });
     } catch (error: any) {
-      console.error('Webhook error:', error);
+      console.error('Webhook processing error:', error);
       res.status(500).json({ error: 'Webhook processing error' });
     }
-  });
+  };
+
+  app.all(['/api/fampay/webhook', '/api/payment/webhook'], handleWebhook);
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== 'production') {

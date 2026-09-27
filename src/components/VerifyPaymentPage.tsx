@@ -147,12 +147,71 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
           } catch (e) {}
         }
 
+        // Hydrate from backend result.data if localStorage was cleared
+        if (!orderMeta && result.data) {
+          const backendData = result.data;
+          const isDeposit = (backendData.product_name || '').toLowerCase().includes('balance') || 
+                            (backendData.product_name || '').toLowerCase().includes('wallet') || 
+                            (backendData.duration_label || '').toLowerCase().includes('balance');
+
+          orderMeta = {
+            orderId: effectiveOrderId,
+            type: isDeposit ? 'balance' : 'keys',
+            amount: backendData.amount || result.amount,
+            userId: backendData.user_id,
+            userEmail: backendData.user_email,
+            productName: backendData.product_name,
+            durationLabel: backendData.duration_label,
+            durationValue: backendData.duration_value,
+            quantity: backendData.quantity || 1,
+            couponCode: backendData.coupon_code
+          };
+        }
+
+        const isBalanceDeposit = orderMeta?.type === 'balance' || 
+          orderMeta?.productName?.toLowerCase().includes('balance') || 
+          orderMeta?.productName?.toLowerCase().includes('wallet');
+        
         const productVal = orderMeta?.durationValue || orderMeta?.categoryId || items[0]?.value;
         const quantity = orderMeta?.quantity || 1;
         const totalPaid = orderMeta?.amount || result.amount || 40;
         const couponUsed = orderMeta?.couponCode;
         const targetUid = currentUser?.uid || orderMeta?.userId;
         const targetEmail = currentUser?.email || orderMeta?.userEmail;
+
+        if (isBalanceDeposit) {
+          if (targetUid) {
+            addBalanceRef.current(targetUid, totalPaid, {
+              method: 'Gateway Auto Verification',
+              referenceId: effectiveOrderId,
+              note: `Wallet Deposit (Order #${effectiveOrderId})`,
+              type: 'deposit',
+              userEmail: targetEmail
+            });
+          }
+
+          const successPayload: PurchaseSuccessPayload = {
+            keys: [],
+            productName: 'Wallet Balance Deposit',
+            durationLabel: `₹${totalPaid} Added to Wallet`,
+            amount: totalPaid,
+            date: new Date().toISOString(),
+            orderId: effectiveOrderId
+          };
+
+          setOrderDetails(successPayload);
+          localStorage.removeItem('pendingPayment');
+          playSuccessSound();
+          confetti({
+            particleCount: 160,
+            spread: 80,
+            origin: { y: 0.6 },
+            colors: ['#6366f1', '#10b981', '#ffffff', '#fbbf24']
+          });
+          setVerificationState('success');
+          setStatusMessage('Payment verified successfully! Balance added to your wallet.');
+          return;
+        }
 
         // Claim digital keys from store inventory
         let keys: string[] = [];

@@ -4,6 +4,7 @@ import confetti from 'canvas-confetti';
 import { useAuth } from '../lib/useAuth';
 import { useBalance, useInventory, resolveProductName } from '../store';
 import { PurchaseSuccessPayload } from './Pricing';
+import { verifyFamGatewayOrder } from '../lib/famPay';
 
 export interface PendingPaymentData {
   orderId: string;
@@ -82,33 +83,9 @@ export function PaymentWatcher({ onKeyReceived }: PaymentWatcherProps) {
     isCheckingRef.current = true;
 
     try {
-      let data: any = null;
-      try {
-        const res = await fetch('/api/fampay/verify-order', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order_id: target.orderId })
-        });
-        const text = await res.text();
-        try {
-          data = JSON.parse(text);
-        } catch {}
-      } catch {}
+      const verifyResult = await verifyFamGatewayOrder(target.orderId);
 
-      if (!data) {
-        const apiKey = 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf';
-        try {
-          const directRes = await fetch(`https://famgateway.in/api/verify-order.php?api_key=${apiKey}&order_id=${encodeURIComponent(target.orderId)}`);
-          const directText = await directRes.text();
-          try {
-            data = JSON.parse(directText);
-          } catch {}
-        } catch {}
-      }
-
-      const status = (data?.status || data?.data?.status || '').toString().toLowerCase();
-
-      if (status === 'success' || status === 'paid' || status === 'completed') {
+      if (verifyResult.verified) {
         playDing();
         confetti({
           particleCount: 150,

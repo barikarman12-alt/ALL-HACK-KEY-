@@ -121,6 +121,35 @@ export interface PurchaseRecord {
   couponCode?: string;
 }
 
+export interface PaymentGatewaySettings {
+  provider: 'famgateway' | 'custom_upi' | 'manual_qr';
+  famApiKey: string;
+  merchantId?: string;
+  upiId?: string;
+  upiName?: string;
+  qrImageUrl?: string;
+  isPaymentEnabled?: boolean;
+  minDepositAmount?: number;
+  customEndpoint?: string;
+  webhookSecret?: string;
+  noticeMessage?: string;
+  updatedAt?: string;
+}
+
+export const defaultPaymentSettings: PaymentGatewaySettings = {
+  provider: 'famgateway',
+  famApiKey: 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf',
+  merchantId: '',
+  upiId: 'fatherxsir@upi',
+  upiName: 'Arman X Store',
+  qrImageUrl: '',
+  isPaymentEnabled: true,
+  minDepositAmount: 10,
+  customEndpoint: '',
+  noticeMessage: 'Instant UPI / QR Auto Delivery',
+  updatedAt: new Date().toISOString()
+};
+
 export interface ProductSettings {
   siteName: string;
   siteLogoUrl: string;
@@ -129,6 +158,7 @@ export interface ProductSettings {
   rootName: string;
   rootLogoUrl: string;
   categories: ProductCategory[];
+  payment?: PaymentGatewaySettings;
 }
 
 export interface UserProfile {
@@ -179,22 +209,31 @@ export interface UserNotification {
   productName?: string;
 }
 
-export interface PendingOrder {
+export interface LiveQROrder {
   id: string;
   orderId: string;
-  userId: string;
+  userId?: string;
   userEmail?: string;
-  type: 'balance' | 'keys';
+  customerName?: string;
+  type: 'balance' | 'keys' | 'qr_deposit' | 'direct_purchase';
   amount: number;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'completed' | 'success' | 'failed' | 'expired';
   productName?: string;
   durationLabel?: string;
   durationValue?: string;
   quantity?: number;
   couponCode?: string;
+  checkoutUrl?: string;
+  upiIntent?: string;
+  qrUrl?: string;
+  paymentMethod?: string;
   createdAt: string;
+  dateFormatted?: string;
+  paidAt?: string;
   updatedAt?: string;
 }
+
+export type PendingOrder = LiveQROrder;
 
 const defaultCoupons: Coupon[] = [
   {
@@ -224,7 +263,8 @@ const defaultSettings: ProductSettings = {
   nonRootLogoUrl: '',
   rootName: '',
   rootLogoUrl: '',
-  categories: []
+  categories: [],
+  payment: defaultPaymentSettings
 };
 
 const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettings; balances: Record<string, number> } => {
@@ -239,7 +279,14 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
         inv = parsed.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
       }
       if (parsed.settings) {
-        sett = { ...defaultSettings, ...parsed.settings };
+        sett = { 
+          ...defaultSettings, 
+          ...parsed.settings,
+          payment: {
+            ...defaultPaymentSettings,
+            ...(parsed.settings.payment || {})
+          }
+        };
         if (sett.categories && Array.isArray(sett.categories)) {
           sett.categories = sett.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
         }
@@ -800,6 +847,25 @@ export const store = {
   getSettings: () => settings,
   getPurchases: () => purchases,
   isInitialized: () => initialized,
+
+  getPaymentSettings: (): PaymentGatewaySettings => {
+    return settings.payment || defaultPaymentSettings;
+  },
+
+  updatePaymentSettings: (newPayment: Partial<PaymentGatewaySettings>) => {
+    const currentPayment = settings.payment || defaultPaymentSettings;
+    const updatedPayment: PaymentGatewaySettings = {
+      ...currentPayment,
+      ...newPayment,
+      updatedAt: new Date().toISOString()
+    };
+    settings = {
+      ...settings,
+      payment: updatedPayment
+    };
+    syncToStorage();
+    store.notify();
+  },
 
   updateSettings: (newSettings: Partial<ProductSettings>) => {
     settings = { ...settings, ...newSettings };
@@ -1489,28 +1555,47 @@ export const store = {
     pendingOrders = [order, ...pendingOrders.filter(o => o.orderId !== order.orderId)];
     syncPendingOrdersToStorage();
     try {
-      if (auth.currentUser) {
-        await setDoc(doc(db, 'pendingOrders', order.orderId), order, { merge: true }).catch(() => {});
-      }
+      await setDoc(doc(db, 'pendingOrders', order.orderId), order, { merge: true }).catch(() => {});
     } catch (e) {}
     store.notify();
     return order;
   },
 
-  completePendingOrder: async (orderId: string) => {
-    pendingOrders = pendingOrders.map(o => o.orderId === orderId ? { ...o, status: 'completed', updatedAt: new Date().toISOString() } : o);
+  updatePendingOrderStatus: async (orderId: string, status: 'pending' | 'completed' | 'success' | 'failed', paidAt?: string) => {
+    const now = new Date().toISOString();
+    pendingOrders = pendingOrders.map(o => {
+      if (o.orderId === orderId) {
+        return {
+          ...o,
+          status,
+          updatedAt: now,
+          paidAt: paidAt || (status === 'completed' || status === 'success' ? now : o.paidAt)
+        };
+      }
+      return o;
+    });
     syncPendingOrdersToStorage();
     try {
-      if (auth.currentUser) {
-        await setDoc(doc(db, 'pendingOrders', orderId), { status: 'completed', updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
-      }
+      await setDoc(doc(db, 'pendingOrders', orderId), { 
+        status, 
+        updatedAt: now, 
+        ...(paidAt || status === 'completed' || status === 'success' ? { paidAt: paidAt || now } : {}) 
+      }, { merge: true }).catch(() => {});
     } catch (e) {}
     store.notify();
+  },
+
+  completePendingOrder: async (orderId: string) => {
+    return store.updatePendingOrderStatus(orderId, 'completed', new Date().toISOString());
   },
 
   getPendingOrders: (userId?: string): PendingOrder[] => {
     if (!userId) return pendingOrders.filter(o => o.status === 'pending');
     return pendingOrders.filter(o => (o.userId === userId || o.userId === 'anonymous') && o.status === 'pending');
+  },
+
+  getAllPendingOrders: (): PendingOrder[] => {
+    return [...pendingOrders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
   subscribe: (listener: () => void) => {
@@ -1652,6 +1737,7 @@ export function useInventory(userId?: string, userEmail?: string) {
     allPurchases: allPurchasesState,
     balances: store.getAllBalances(),
     updateSettings: store.updateSettings,
+    updatePaymentSettings: store.updatePaymentSettings,
     addStock: store.addStock,
     addKeys: store.addKeys,
     removeKey: store.removeKey,
@@ -1664,17 +1750,22 @@ export function useInventory(userId?: string, userEmail?: string) {
 
 export function usePendingOrders(userId?: string) {
   const [pendingList, setPendingList] = useState<PendingOrder[]>(store.getPendingOrders(userId));
+  const [allList, setAllList] = useState<PendingOrder[]>(store.getAllPendingOrders());
 
   useEffect(() => {
     setPendingList(store.getPendingOrders(userId));
+    setAllList(store.getAllPendingOrders());
     return store.subscribe(() => {
       setPendingList(store.getPendingOrders(userId));
+      setAllList(store.getAllPendingOrders());
     });
   }, [userId]);
 
   return {
     pendingOrders: pendingList,
+    allPendingOrders: allList,
     savePendingOrder: store.savePendingOrder,
+    updatePendingOrderStatus: store.updatePendingOrderStatus,
     completePendingOrder: store.completePendingOrder,
     getPendingOrders: store.getPendingOrders
   };

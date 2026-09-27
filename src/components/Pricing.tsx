@@ -5,6 +5,7 @@ import { FastAverageColor } from 'fast-average-color';
 import { useInventory, useBalance, useCoupons, Coupon, getCouponRemainingTime, resolveProductName } from '../store';
 import { useAuth } from '../lib/useAuth';
 import { createFamGatewayOrder } from '../lib/famPay';
+import { ProductGridSkeleton } from './Skeletons';
 
 export interface PurchaseSuccessPayload {
   keys: string[];
@@ -393,10 +394,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
 
         {/* Categories Grid */}
         {(!isInitialized && filteredCategories.length === 0) ? (
-          <div className="flex flex-col items-center justify-center py-20 text-zinc-500">
-            <Loader2 className="w-10 h-10 animate-spin text-zinc-400 mb-3" />
-            <p className="text-sm font-medium theme-text-sub">Loading store...</p>
-          </div>
+          <ProductGridSkeleton count={4} />
         ) : filteredCategories.length > 0 ? (
           <div className="grid grid-cols-2 gap-3 sm:gap-6 max-w-4xl mx-auto">
             {filteredCategories.map((category) => (
