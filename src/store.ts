@@ -150,6 +150,30 @@ export const defaultPaymentSettings: PaymentGatewaySettings = {
   updatedAt: new Date().toISOString()
 };
 
+export interface SpinWheelSettings {
+  isEnabled: boolean;
+  prob0: number; // e.g. 50 (50%)
+  prob10: number; // e.g. 20 (20%)
+  prob20: number; // e.g. 20 (20%)
+  prob50: number; // e.g. 10 (10%)
+  couponExpiryDays: number; // e.g. 3 days
+  couponUsageLimit: number; // e.g. 1 usage
+  freeSpinsPerKey: number; // e.g. 1
+  updatedAt?: string;
+}
+
+export const defaultSpinWheelSettings: SpinWheelSettings = {
+  isEnabled: true,
+  prob0: 50,
+  prob10: 20,
+  prob20: 20,
+  prob50: 10,
+  couponExpiryDays: 3,
+  couponUsageLimit: 1,
+  freeSpinsPerKey: 1,
+  updatedAt: new Date().toISOString()
+};
+
 export interface ProductSettings {
   siteName: string;
   siteLogoUrl: string;
@@ -159,6 +183,7 @@ export interface ProductSettings {
   rootLogoUrl: string;
   categories: ProductCategory[];
   payment?: PaymentGatewaySettings;
+  spinWheel?: SpinWheelSettings;
 }
 
 export interface UserProfile {
@@ -264,7 +289,8 @@ const defaultSettings: ProductSettings = {
   rootName: '',
   rootLogoUrl: '',
   categories: [],
-  payment: defaultPaymentSettings
+  payment: defaultPaymentSettings,
+  spinWheel: defaultSpinWheelSettings
 };
 
 const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettings; balances: Record<string, number> } => {
@@ -285,6 +311,10 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
           payment: {
             ...defaultPaymentSettings,
             ...(parsed.settings.payment || {})
+          },
+          spinWheel: {
+            ...defaultSpinWheelSettings,
+            ...(parsed.settings.spinWheel || {})
           }
         };
         if (sett.categories && Array.isArray(sett.categories)) {
@@ -867,6 +897,25 @@ export const store = {
     store.notify();
   },
 
+  getSpinWheelSettings: (): SpinWheelSettings => {
+    return settings.spinWheel || defaultSpinWheelSettings;
+  },
+
+  updateSpinWheelSettings: (newSpin: Partial<SpinWheelSettings>) => {
+    const currentSpin = settings.spinWheel || defaultSpinWheelSettings;
+    const updatedSpin: SpinWheelSettings = {
+      ...currentSpin,
+      ...newSpin,
+      updatedAt: new Date().toISOString()
+    };
+    settings = {
+      ...settings,
+      spinWheel: updatedSpin
+    };
+    syncToStorage();
+    store.notify();
+  },
+
   updateSettings: (newSettings: Partial<ProductSettings>) => {
     settings = { ...settings, ...newSettings };
     syncToStorage();
@@ -942,6 +991,18 @@ export const store = {
     if (record) {
       purchases = [record, ...purchases];
       syncPurchasesToStorage();
+
+      // Auto-credit Lucky Spin Chances for keys purchased (1 key = 1 spin)
+      const spinsPerKey = settings.spinWheel?.freeSpinsPerKey ?? 1;
+      const earnedSpins = (purchased.length || count) * spinsPerKey;
+      if (earnedSpins > 0) {
+        try {
+          const spinKey = `spin_balance_${userId || 'guest'}`;
+          const currentSpins = parseInt(localStorage.getItem(spinKey) || '0', 10);
+          localStorage.setItem(spinKey, (currentSpins + earnedSpins).toString());
+        } catch (e) {}
+      }
+
       if (userId && userId !== 'anonymous') {
         try {
           const userKey = `user_orders_${userId}`;
@@ -1598,9 +1659,11 @@ export const store = {
     return [...pendingOrders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
-  subscribe: (listener: () => void) => {
+  subscribe: (listener: () => void): (() => void) => {
     listeners.add(listener);
-    return () => listeners.delete(listener);
+    return () => {
+      listeners.delete(listener);
+    };
   },
 
   notify: () => {
@@ -1738,6 +1801,7 @@ export function useInventory(userId?: string, userEmail?: string) {
     balances: store.getAllBalances(),
     updateSettings: store.updateSettings,
     updatePaymentSettings: store.updatePaymentSettings,
+    updateSpinWheelSettings: store.updateSpinWheelSettings,
     addStock: store.addStock,
     addKeys: store.addKeys,
     removeKey: store.removeKey,

@@ -49,15 +49,17 @@ import {
   CheckCircle,
   XCircle,
   HelpCircle,
-  Cpu
+  Cpu,
+  Gift,
+  Dices
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName } from '../store';
+import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
 import { testFamApiKeyConnection, verifyFamGatewayOrder, DEFAULT_FAM_API_KEY } from '../lib/famPay';
 
 export function Dashboard() {
   const [activeTab, setActiveTab] = useState('menu');
-  const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, purchases, balances, addProduct, deleteProduct } = useInventory();
+  const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, updateSpinWheelSettings, purchases, balances, addProduct, deleteProduct } = useInventory();
   const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon } = useCoupons();
   const { users, updateUserBalance, issueRefund } = useUsers();
   const { allTransactions: allWalletTransactions } = useWalletTransactions();
@@ -190,6 +192,93 @@ export function Dashboard() {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  // Spin Wheel Management States
+  const [draftSpinEnabled, setDraftSpinEnabled] = useState(
+    settings.spinWheel?.isEnabled !== false
+  );
+  const [draftProb0, setDraftProb0] = useState(
+    (settings.spinWheel?.prob0 ?? 50).toString()
+  );
+  const [draftProb10, setDraftProb10] = useState(
+    (settings.spinWheel?.prob10 ?? 20).toString()
+  );
+  const [draftProb20, setDraftProb20] = useState(
+    (settings.spinWheel?.prob20 ?? 20).toString()
+  );
+  const [draftProb50, setDraftProb50] = useState(
+    (settings.spinWheel?.prob50 ?? 10).toString()
+  );
+  const [draftCouponExpiryDays, setDraftCouponExpiryDays] = useState(
+    (settings.spinWheel?.couponExpiryDays ?? 3).toString()
+  );
+  const [draftCouponUsageLimit, setDraftCouponUsageLimit] = useState(
+    (settings.spinWheel?.couponUsageLimit ?? 1).toString()
+  );
+  const [draftFreeSpinsPerKey, setDraftFreeSpinsPerKey] = useState(
+    (settings.spinWheel?.freeSpinsPerKey ?? 1).toString()
+  );
+  const [spinSuccessMsg, setSpinSuccessMsg] = useState('');
+  const [spinErrorMsg, setSpinErrorMsg] = useState('');
+
+  // Sync spinWheel settings from store when changed
+  useEffect(() => {
+    if (settings.spinWheel) {
+      setDraftSpinEnabled(settings.spinWheel.isEnabled !== false);
+      setDraftProb0((settings.spinWheel.prob0 ?? 50).toString());
+      setDraftProb10((settings.spinWheel.prob10 ?? 20).toString());
+      setDraftProb20((settings.spinWheel.prob20 ?? 20).toString());
+      setDraftProb50((settings.spinWheel.prob50 ?? 10).toString());
+      setDraftCouponExpiryDays((settings.spinWheel.couponExpiryDays ?? 3).toString());
+      setDraftCouponUsageLimit((settings.spinWheel.couponUsageLimit ?? 1).toString());
+      setDraftFreeSpinsPerKey((settings.spinWheel.freeSpinsPerKey ?? 1).toString());
+    }
+  }, [settings.spinWheel]);
+
+  const handleSaveSpinWheelSettings = () => {
+    try {
+      const p0 = Math.max(0, parseFloat(draftProb0) || 0);
+      const p10 = Math.max(0, parseFloat(draftProb10) || 0);
+      const p20 = Math.max(0, parseFloat(draftProb20) || 0);
+      const p50 = Math.max(0, parseFloat(draftProb50) || 0);
+      const expiry = Math.max(1, parseInt(draftCouponExpiryDays, 10) || 3);
+      const usage = Math.max(1, parseInt(draftCouponUsageLimit, 10) || 1);
+      const spins = Math.max(1, parseInt(draftFreeSpinsPerKey, 10) || 1);
+
+      const sum = p0 + p10 + p20 + p50;
+      if (sum <= 0) {
+        setSpinErrorMsg('Total probability sum cannot be 0%');
+        setTimeout(() => setSpinErrorMsg(''), 4000);
+        return;
+      }
+
+      updateSpinWheelSettings({
+        isEnabled: draftSpinEnabled,
+        prob0: p0,
+        prob10: p10,
+        prob20: p20,
+        prob50: p50,
+        couponExpiryDays: expiry,
+        couponUsageLimit: usage,
+        freeSpinsPerKey: spins,
+        updatedAt: new Date().toISOString()
+      });
+
+      setSpinSuccessMsg('🎡 Spin Wheel settings, probabilities & coupon limits saved and synced live!');
+      setSpinErrorMsg('');
+      setTimeout(() => setSpinSuccessMsg(''), 4000);
+    } catch (e: any) {
+      setSpinErrorMsg(e?.message || 'Failed to save spin wheel settings');
+      setTimeout(() => setSpinErrorMsg(''), 4000);
+    }
+  };
+
+  const handleApplyProbPreset = (p0: number, p10: number, p20: number, p50: number) => {
+    setDraftProb0(p0.toString());
+    setDraftProb10(p10.toString());
+    setDraftProb20(p20.toString());
+    setDraftProb50(p50.toString());
   };
 
   // User Management & Details States
@@ -987,7 +1076,7 @@ export function Dashboard() {
               Owner Dashboard
             </h1>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {['Overview', 'Inventory', 'Orders', 'Coupons', 'Payment Gateway', 'Customers', 'Analytics', 'Settings'].map((tab) => (
+              {['Overview', 'Inventory', 'Orders', 'Coupons', 'Spin Wheel', 'Payment Gateway', 'Customers', 'Analytics', 'Settings'].map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab.toLowerCase().replace(' ', '-'))}
@@ -4175,6 +4264,386 @@ export function Dashboard() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'spin-wheel' && (
+          <div className="space-y-8 animate-in fade-in duration-200">
+            {/* Header & Save Action */}
+            <div className="bg-[#121215]/90 rounded-3xl border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-6 sm:p-8 backdrop-blur-xl theme-card relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.3)]">
+                    <Gift className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-display font-bold text-white flex items-center gap-2">
+                      <span>Lucky Spin Wheel Controls</span>
+                      <span className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                        draftSpinEnabled 
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                      }`}>
+                        {draftSpinEnabled ? '● LIVE & ACTIVE' : '○ PAUSED'}
+                      </span>
+                    </h2>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Control the user spin wheel event, discount slice probabilities, coupon validity duration, and redemption limits.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSaveSpinWheelSettings}
+                  className="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-extrabold text-sm rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all cursor-pointer flex items-center gap-2 shrink-0 self-stretch sm:self-auto justify-center active:scale-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>Save Spin Settings</span>
+                </button>
+              </div>
+
+              {spinSuccessMsg && (
+                <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{spinSuccessMsg}</span>
+                </div>
+              )}
+
+              {spinErrorMsg && (
+                <div className="mt-4 p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{spinErrorMsg}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Master Toggle Card */}
+            <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-6 backdrop-blur-xl theme-card space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Zap className="w-4 h-4 text-amber-400" />
+                    <span>Spin Wheel System Toggle (ON / OFF)</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    When enabled, the Lucky Spin button is shown in the store header and customers can spin to win discount coupons.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setDraftSpinEnabled(!draftSpinEnabled)}
+                  className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-xs transition-all cursor-pointer border ${
+                    draftSpinEnabled
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                      : 'bg-zinc-900 text-zinc-400 border-zinc-700 hover:bg-zinc-800'
+                  }`}
+                >
+                  {draftSpinEnabled ? (
+                    <>
+                      <ToggleRight className="w-5 h-5 text-emerald-400" />
+                      <span>Event Enabled (Active)</span>
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="w-5 h-5 text-zinc-500" />
+                      <span>Event Disabled (Paused)</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* Probability Percentages Configuration Card */}
+            <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-6 backdrop-blur-xl theme-card space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Dices className="w-4 h-4 text-indigo-400" />
+                    <span>Slice Probability Percentages (%)</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Define the exact winning chance for each discount slice on the wheel (Calculated using strict <code className="text-indigo-300">Math.random()</code>).
+                  </p>
+                </div>
+
+                {/* Total Probability Status Pill */}
+                {(() => {
+                  const p0 = parseFloat(draftProb0) || 0;
+                  const p10 = parseFloat(draftProb10) || 0;
+                  const p20 = parseFloat(draftProb20) || 0;
+                  const p50 = parseFloat(draftProb50) || 0;
+                  const total = p0 + p10 + p20 + p50;
+                  const isValid = total === 100;
+
+                  return (
+                    <div className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-2 ${
+                      isValid 
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
+                        : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                    }`}>
+                      <span>Total: {total}%</span>
+                      {isValid ? (
+                        <span className="text-[10px] text-emerald-400">✓ 100% Balanced</span>
+                      ) : (
+                        <span className="text-[10px] text-amber-400">⚠ Will Normalize</span>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Quick Preset Buttons */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs text-zinc-400 font-medium mr-1 flex items-center gap-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                  Quick Presets:
+                </span>
+                {[
+                  { label: '🎯 Standard (50 / 20 / 20 / 10)', p0: 50, p10: 20, p20: 20, p50: 10 },
+                  { label: '🎁 Generous (30 / 30 / 30 / 10)', p0: 30, p10: 30, p20: 30, p50: 10 },
+                  { label: '💎 High Stakes (70 / 10 / 10 / 10)', p0: 70, p10: 10, p20: 10, p50: 10 },
+                  { label: '⚡ Equal 25% (25 / 25 / 25 / 25)', p0: 25, p10: 25, p20: 25, p50: 25 }
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => handleApplyProbPreset(preset.p0, preset.p10, preset.p20, preset.p50)}
+                    className="px-3 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 rounded-lg text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Probability Inputs Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                
+                {/* 0% OFF */}
+                <div className="bg-zinc-950/80 border border-white/10 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-zinc-300">0% OFF (No Discount)</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-zinc-800 text-zinc-400 rounded-full font-mono">Slice 1</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={draftProb0}
+                      onChange={(e) => setDraftProb0(e.target.value)}
+                      className="w-full bg-zinc-900 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                      placeholder="50"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-bold">%</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500">"Better luck next time" outcome</p>
+                </div>
+
+                {/* 10% OFF */}
+                <div className="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-indigo-300">10% OFF Coupon</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-indigo-900/60 text-indigo-300 rounded-full font-mono">Slice 2</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={draftProb10}
+                      onChange={(e) => setDraftProb10(e.target.value)}
+                      className="w-full bg-zinc-900 border border-indigo-500/30 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                      placeholder="20"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400 font-bold">%</span>
+                  </div>
+                  <p className="text-[11px] text-indigo-300/70">Generates <code className="text-white">LUCKY10-XXXX</code></p>
+                </div>
+
+                {/* 20% OFF */}
+                <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-emerald-300">20% OFF Coupon</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-emerald-900/60 text-emerald-300 rounded-full font-mono">Slice 3</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={draftProb20}
+                      onChange={(e) => setDraftProb20(e.target.value)}
+                      className="w-full bg-zinc-900 border border-emerald-500/30 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                      placeholder="20"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400 font-bold">%</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-300/70">Generates <code className="text-white">LUCKY20-XXXX</code></p>
+                </div>
+
+                {/* 50% OFF JACKPOT */}
+                <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300">🎉 50% OFF JACKPOT</span>
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-900/60 text-amber-300 rounded-full font-mono">Slice 4</span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      value={draftProb50}
+                      onChange={(e) => setDraftProb50(e.target.value)}
+                      className="w-full bg-zinc-900 border border-amber-500/30 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                      placeholder="10"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-amber-400 font-bold">%</span>
+                  </div>
+                  <p className="text-[11px] text-amber-300/70">Generates <code className="text-white">JACKPOT50-XXXX</code></p>
+                </div>
+              </div>
+            </div>
+
+            {/* Coupon Rules: Expiry & Usage Limits Card */}
+            <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-6 backdrop-blur-xl theme-card space-y-6">
+              <div className="border-b border-white/10 pb-4">
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-emerald-400" />
+                  <span>Won Coupon Rules & Expiration Controls</span>
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  Set how long won coupons remain valid and how many times they can be redeemed.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                
+                {/* Expiry in Days */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Coupon Expiry Duration (Days)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="365"
+                      step="1"
+                      value={draftCouponExpiryDays}
+                      onChange={(e) => setDraftCouponExpiryDays(e.target.value)}
+                      className="w-full bg-zinc-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-500"
+                      placeholder="3"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-bold">Days</span>
+                  </div>
+
+                  {/* Expiry presets */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {['1', '3', '7', '14', '30'].map((d) => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setDraftCouponExpiryDays(d)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                          draftCouponExpiryDays === d
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : 'bg-zinc-900 text-zinc-400 hover:text-white border border-white/5'
+                        }`}
+                      >
+                        {d} Day{parseInt(d) > 1 ? 's' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Usage Limit per Coupon */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Coupon Usage Limit (Redemptions)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000"
+                      step="1"
+                      value={draftCouponUsageLimit}
+                      onChange={(e) => setDraftCouponUsageLimit(e.target.value)}
+                      className="w-full bg-zinc-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                      placeholder="1"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-bold">Uses</span>
+                  </div>
+
+                  {/* Usage presets */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {['1', '2', '5', '10'].map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => setDraftCouponUsageLimit(u)}
+                        className={`px-2 py-0.5 rounded text-[11px] font-semibold transition-all ${
+                          draftCouponUsageLimit === u
+                            ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40'
+                            : 'bg-zinc-900 text-zinc-400 hover:text-white border border-white/5'
+                        }`}
+                      >
+                        {u} Time{parseInt(u) > 1 ? 's' : ''}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Free Spins per Key Buy */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-300 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Spins Awarded per 1 Key Purchased</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value={draftFreeSpinsPerKey}
+                      onChange={(e) => setDraftFreeSpinsPerKey(e.target.value)}
+                      className="w-full bg-zinc-950 border border-white/10 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                      placeholder="1"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-bold">Spins</span>
+                  </div>
+                  <p className="text-[11px] text-zinc-500">
+                    E.g. If customer buys 1 Key, they get <strong>{draftFreeSpinsPerKey}</strong> spin chance.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Bottom Save Action Bar */}
+            <div className="flex items-center justify-between p-6 bg-zinc-900/60 rounded-2xl border border-white/10">
+              <div>
+                <h4 className="text-sm font-bold text-white">Apply Live Configuration</h4>
+                <p className="text-xs text-zinc-400">All changes take effect immediately across all customer store sessions.</p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveSpinWheelSettings}
+                className="px-6 py-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-zinc-950 font-extrabold text-sm rounded-xl shadow-[0_0_20px_rgba(245,158,11,0.4)] transition-all cursor-pointer flex items-center gap-2 active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>Save Changes</span>
+              </button>
             </div>
           </div>
         )}

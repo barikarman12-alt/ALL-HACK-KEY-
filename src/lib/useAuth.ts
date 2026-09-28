@@ -16,6 +16,7 @@ export interface User {
   email: string | null;
   displayName: string | null;
   customId?: string;
+  photoURL?: string | null;
 }
 
 export function useAuth() {
@@ -36,7 +37,8 @@ export function useAuth() {
           uid: user.uid,
           email: user.email,
           displayName,
-          customId
+          customId,
+          photoURL: user.photoURL || null
         });
 
         // Sync to store & database

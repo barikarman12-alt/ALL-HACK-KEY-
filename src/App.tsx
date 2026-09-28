@@ -13,6 +13,7 @@ import { PaymentWatcher } from './components/PaymentWatcher';
 import { GlobalLoadingBar } from './components/Skeletons';
 import { useAuth } from './lib/useAuth';
 import { ThemeProvider } from './lib/theme';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 export type PageRoute = 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received' | 'verify-payment';
 
@@ -160,8 +161,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

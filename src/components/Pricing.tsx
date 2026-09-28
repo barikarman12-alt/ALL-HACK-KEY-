@@ -368,8 +368,9 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     }
   };
 
-  const filteredCategories = settings.categories.filter((category) => 
-    category.name.toLowerCase().includes(searchQuery.toLowerCase())
+  const safeCategories = Array.isArray(settings?.categories) ? settings.categories : [];
+  const filteredCategories = safeCategories.filter((category) => 
+    category && category.name && category.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -448,7 +449,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                   <div>
                     <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">SELECTED PRODUCT</p>
                     <p className="text-xl font-bold font-serif text-zinc-100 tracking-wide">
-                      {settings.categories.find(c => c.id === selectedProduct)?.name || selectedProduct}
+                      {safeCategories.find(c => c.id === selectedProduct)?.name || selectedProduct}
                     </p>
                   </div>
 

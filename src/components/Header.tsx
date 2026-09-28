@@ -1,4 +1,4 @@
-import { LayoutDashboard, Home, LogIn, LogOut, Wallet, Plus, Key, Bell, Sun, Moon, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Home, LogIn, LogOut, Wallet, Plus, Key, Bell, Sun, Moon, Menu, X, Sparkles, Gift } from 'lucide-react';
 import { useState } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
@@ -6,10 +6,11 @@ import { useBalance, useInventory, useNotifications } from '../store';
 import { useTheme } from '../lib/theme';
 import { AddBalanceModal } from './AddBalanceModal';
 import { NotificationsModal } from './NotificationsModal';
+import { SpinWheelModal } from './SpinWheelModal';
 
 interface HeaderProps {
-  currentPage?: 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received';
-  onNavigate?: (page: 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received') => void;
+  currentPage?: 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received' | 'verify-payment';
+  onNavigate?: (page: 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received' | 'verify-payment') => void;
   onShowPurchases?: () => void;
 }
 
@@ -17,6 +18,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAddBalanceOpen, setIsAddBalanceOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
+  const [isSpinWheelOpen, setIsSpinWheelOpen] = useState(false);
   const { currentUser } = useAuth();
   const { balance } = useBalance(currentUser?.uid);
   const { settings } = useInventory(currentUser?.uid, currentUser?.email || undefined);
@@ -93,6 +95,16 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
               ) : (
                 <Moon className="w-4 h-4 text-indigo-300" />
               )}
+            </button>
+
+            {/* Lucky Spin Wheel Button */}
+            <button 
+              className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 hover:border-amber-400 text-amber-300 hover:text-white text-xs font-bold transition-all shadow-[0_0_15px_rgba(245,158,11,0.2)] hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer active:scale-95"
+              onClick={() => setIsSpinWheelOpen(true)}
+              title="Spin the Wheel to win discount coupons!"
+            >
+              <Gift className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
+              <span>Lucky Spin</span>
             </button>
 
             {/* Keys Button -> Opens Key History */}
@@ -236,6 +248,14 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
             )}
 
             <button 
+              onClick={() => { setIsSpinWheelOpen(true); setIsMenuOpen(false); }}
+              className="w-full flex items-center px-3 py-2 text-sm font-semibold text-amber-300 hover:text-white hover:bg-amber-500/10 rounded-xl transition-colors cursor-pointer border border-amber-500/20 bg-amber-500/5"
+            >
+              <Gift className="w-4 h-4 mr-3 text-amber-400 animate-pulse" />
+              Lucky Spin & Win
+            </button>
+
+            <button 
               onClick={() => { onNavigate?.('home'); setIsMenuOpen(false); }}
               className="w-full flex items-center px-3 py-2 text-sm font-semibold text-zinc-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors cursor-pointer"
             >
@@ -284,6 +304,13 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
       userId={currentUser?.uid} 
       onViewPurchases={handleKeyClick} 
     />
+    {isSpinWheelOpen && (
+      <SpinWheelModal 
+        isOpen={isSpinWheelOpen} 
+        onClose={() => setIsSpinWheelOpen(false)} 
+        onNavigateToBuyKey={() => onNavigate?.('home')} 
+      />
+    )}
     </>
   );
 }
