@@ -19,27 +19,33 @@ export interface User {
   photoURL?: string | null;
 }
 
+let cachedUser: User | null = null;
+let hasAuthResolved = false;
+
 export function useAuth() {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(cachedUser);
+  const [loading, setLoading] = useState(!hasAuthResolved);
 
   useEffect(() => {
     let mounted = true;
 
     const unsubscribe = onAuthStateChanged(auth, (user: FirebaseUser | null) => {
       if (!mounted) return;
+      hasAuthResolved = true;
       if (user) {
         const customId = user.email?.split('@')[0] || user.uid.substring(0, 8);
         const displayName = user.displayName || customId;
         const role = (user.email === 'barikarman12@gmail.com' || user.email === 'barikarman207@gmail.com' || user.email?.includes('barikarman')) ? 'owner' : 'customer';
 
-        setCurrentUser({
+        const userObj: User = {
           uid: user.uid,
           email: user.email,
           displayName,
           customId,
           photoURL: user.photoURL || null
-        });
+        };
+        cachedUser = userObj;
+        setCurrentUser(userObj);
 
         // Sync to store & database
         store.registerOrUpdateUser({
@@ -53,6 +59,7 @@ export function useAuth() {
           lastLoginAt: new Date().toISOString()
         });
       } else {
+        cachedUser = null;
         setCurrentUser(null);
       }
       setLoading(false);

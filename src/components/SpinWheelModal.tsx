@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { useAuth } from '../lib/useAuth';
-import { useCoupons, useInventory, defaultSpinWheelSettings } from '../store';
+import { useCoupons, useInventory, defaultSpinWheelSettings, useSpinBalance } from '../store';
 import { startWheelSpinningAudio, playWinPrizeSound, playTryAgainSound } from '../lib/spinAudio';
 
 export interface SpinSlice {
@@ -91,12 +91,8 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
     }
   ];
 
-  // Persistent spin balance for the user
-  const [spinBalance, setSpinBalance] = useState<number>(() => {
-    const saved = localStorage.getItem(`spin_balance_${currentUser?.uid || 'guest'}`);
-    if (saved !== null) return Math.max(0, parseInt(saved, 10) || 0);
-    return 1; // Default 1 free welcome spin
-  });
+  // Spin balance from unified store (24h daily reset at 12:01 AM)
+  const { spinBalance, countdown, deductSpin } = useSpinBalance(currentUser?.uid);
 
   const [isSpinning, setIsSpinning] = useState(false);
   const [rotationDegrees, setRotationDegrees] = useState(0);
@@ -116,24 +112,6 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
       return next;
     });
   };
-
-  // Persist spin balance
-  useEffect(() => {
-    localStorage.setItem(`spin_balance_${currentUser?.uid || 'guest'}`, spinBalance.toString());
-  }, [spinBalance, currentUser]);
-
-  // Sync with user purchases (1 Key Buy = 1 Spin Chance)
-  useEffect(() => {
-    const lastPurchaseCountStr = localStorage.getItem(`spin_last_purchase_count_${currentUser?.uid || 'guest'}`);
-    const lastCount = lastPurchaseCountStr ? parseInt(lastPurchaseCountStr, 10) : 0;
-    const currentCount = purchases.reduce((acc, p) => acc + (p.keys?.length || 1), 0);
-
-    if (currentCount > lastCount) {
-      const newSpinsEarned = (currentCount - lastCount) * (spinConfig.freeSpinsPerKey || 1);
-      setSpinBalance(prev => prev + newSpinsEarned);
-      localStorage.setItem(`spin_last_purchase_count_${currentUser?.uid || 'guest'}`, currentCount.toString());
-    }
-  }, [purchases, currentUser, spinConfig.freeSpinsPerKey]);
 
   // Draw the wheel onto the canvas
   useEffect(() => {
@@ -232,8 +210,10 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
     if (!isFeatureEnabled) return;
     if (spinBalance <= 0 || isSpinning) return;
 
-    // Deduct 1 spin chance immediately
-    setSpinBalance(prev => Math.max(0, prev - 1));
+    // Deduct 1 spin chance immediately via unified store
+    const deducted = deductSpin();
+    if (!deducted) return;
+
     setIsSpinning(true);
     setWonPrize(null);
 
@@ -350,9 +330,9 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
             </div>
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">
-                Lucky Spin & Win
+                Daily Lucky Spin & Win
               </h3>
-              <p className="text-[11px] text-zinc-400">1 Key Buy = 1 Free Spin Chance</p>
+              <p className="text-[11px] text-zinc-400">1 Free Spin Every 24h • Resets at 12:01 AM</p>
             </div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -388,33 +368,24 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
         {/* Modal Body */}
         <div className={`p-6 flex flex-col items-center text-center space-y-5 ${!isFeatureEnabled ? 'opacity-50 pointer-events-none' : ''}`}>
           
-          {/* Spin Balance Pill & Real Key Buy Link */}
-          <div className="flex items-center justify-between w-full bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl">
+          {/* Daily Spin Balance Pill & Live 12:01 AM Reset Countdown */}
+          <div className="flex flex-col sm:flex-row items-center justify-between w-full bg-white/[0.03] border border-white/5 px-4 py-2.5 rounded-2xl gap-2">
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-              <span className="text-xs text-zinc-400">Available Spins:</span>
-              <span className="text-base font-extrabold text-amber-300 font-mono">
-                {spinBalance}
+              <span className="text-xs text-zinc-400">Daily Spin:</span>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                spinBalance > 0
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                  : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+              }`}>
+                {spinBalance > 0 ? '🟢 1 Free Available' : '🔒 Used for Today'}
               </span>
             </div>
 
-            {onNavigateToBuyKey && spinBalance === 0 ? (
-              <button
-                onClick={() => {
-                  onClose();
-                  onNavigateToBuyKey();
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 hover:text-white border border-indigo-500/30 rounded-xl transition-all cursor-pointer active:scale-95"
-              >
-                <Key className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Buy Key (+1 Spin)</span>
-              </button>
-            ) : (
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-semibold bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-xl">
-                <Key className="w-3.5 h-3.5 text-indigo-400" />
-                <span>+1 Spin on Key Buy</span>
-              </div>
-            )}
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-zinc-400">
+              <span className="text-zinc-500">Next 12:01 AM Reset:</span>
+              <span className="text-amber-300 font-bold">{countdown}</span>
+            </div>
           </div>
 
           {/* Wheel Container with Pointer */}
@@ -454,7 +425,7 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
           <button
             onClick={handleSpin}
             disabled={spinBalance <= 0 || isSpinning || !isFeatureEnabled}
-            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm sm:text-base font-bold rounded-2xl shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:shadow-[0_0_35px_rgba(99,102,241,0.6)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
+            className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm sm:text-base font-bold rounded-2xl shadow-[0_0_25px_rgba(99,102,241,0.4)] hover:shadow-[0_0_35px_rgba(99,102,241,0.6)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
           >
             {isSpinning ? (
               <>
@@ -463,14 +434,28 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
               </>
             ) : spinBalance > 0 ? (
               <>
-                <Sparkles className="w-4 h-4 text-amber-300" />
-                <span>SPIN NOW (1 Spin Chance)</span>
+                <Sparkles className="w-4 h-4 text-amber-300 animate-bounce" />
+                <span>SPIN NOW (Daily Free Spin)</span>
                 <ArrowRight className="w-4 h-4" />
               </>
             ) : (
-              <span>No Spins Left • Buy 1 Key to Earn Spin</span>
+              <span>🔒 0 Spins Left • Next Reset in {countdown}</span>
             )}
           </button>
+
+          {/* Daily 24h Explanatory Notice */}
+          {spinBalance <= 0 ? (
+            <div className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 px-3.5 py-2.5 rounded-xl w-full text-center space-y-1">
+              <div>⏰ <strong>Aaj Ka Daily Free Spin Use Ho Chuka Hai!</strong></div>
+              <div className="text-zinc-300">
+                Har 24 ghante me ek baar free spin milta hai. Agla spin roz raat <span className="text-amber-300 font-bold">12:01 AM</span> pe refresh hoga: <span className="text-amber-400 font-bold font-mono">{countdown}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-emerald-300/90 bg-emerald-500/10 border border-emerald-500/20 px-3 py-1.5 rounded-xl w-full text-center">
+              🎉 <strong>Aaj Ka Free Spin Ready Hai!</strong> Wheel ghumayein aur discounts jeetein (Next reset 12:01 AM).
+            </div>
+          )}
 
           {/* Real Key Purchase Link */}
           {onNavigateToBuyKey && (

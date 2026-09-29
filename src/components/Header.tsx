@@ -1,8 +1,8 @@
 import { LayoutDashboard, Home, LogIn, LogOut, Wallet, Plus, Key, Bell, Sun, Moon, Menu, X, Sparkles, Gift } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
-import { useBalance, useInventory, useNotifications } from '../store';
+import { useBalance, useInventory, useNotifications, useSpinBalance } from '../store';
 import { useTheme } from '../lib/theme';
 import { AddBalanceModal } from './AddBalanceModal';
 import { NotificationsModal } from './NotificationsModal';
@@ -23,6 +23,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
   const { balance } = useBalance(currentUser?.uid);
   const { settings } = useInventory(currentUser?.uid, currentUser?.email || undefined);
   const { unreadCount } = useNotifications(currentUser?.uid);
+  const { spinBalance: spinCount } = useSpinBalance(currentUser?.uid);
   const { isLight, toggleTheme } = useTheme();
 
   const isOwner = Boolean(
@@ -99,12 +100,23 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
 
             {/* Lucky Spin Wheel Button */}
             <button 
-              className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full border border-amber-500/40 bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 hover:border-amber-400 text-amber-300 hover:text-white text-xs font-bold transition-all shadow-[0_0_15px_rgba(245,158,11,0.2)] hover:shadow-[0_0_20px_rgba(245,158,11,0.4)] cursor-pointer active:scale-95"
+              className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full border transition-all cursor-pointer active:scale-95 ${
+                spinCount > 0
+                  ? 'border-amber-400 bg-gradient-to-r from-amber-500/25 via-orange-500/20 to-amber-500/25 text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.4)]'
+                  : 'border-zinc-700/60 bg-zinc-900/60 hover:border-amber-500/40 text-zinc-400 hover:text-amber-300'
+              }`}
               onClick={() => setIsSpinWheelOpen(true)}
-              title="Spin the Wheel to win discount coupons!"
+              title={spinCount > 0 ? "Daily Free Spin Available! (Resets daily at 12:01 AM)" : "Daily spin used. Resets at 12:01 AM"}
             >
-              <Gift className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-              <span>Lucky Spin</span>
+              <Gift className={`w-3.5 h-3.5 ${spinCount > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-400'}`} />
+              <span>{spinCount > 0 ? "Daily Spin" : "Lucky Spin"}</span>
+              {spinCount > 0 ? (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-black text-[10px] font-black leading-none shadow-[0_0_8px_rgba(245,158,11,0.8)]">
+                  FREE
+                </span>
+              ) : (
+                <span className="text-[10px] text-zinc-500 font-mono ml-0.5">12:01 AM</span>
+              )}
             </button>
 
             {/* Keys Button -> Opens Key History */}
@@ -249,10 +261,25 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
 
             <button 
               onClick={() => { setIsSpinWheelOpen(true); setIsMenuOpen(false); }}
-              className="w-full flex items-center px-3 py-2 text-sm font-semibold text-amber-300 hover:text-white hover:bg-amber-500/10 rounded-xl transition-colors cursor-pointer border border-amber-500/20 bg-amber-500/5"
+              className={`w-full flex items-center justify-between px-3 py-2 text-sm font-semibold rounded-xl transition-colors cursor-pointer border ${
+                spinCount > 0
+                  ? 'border-amber-400 bg-amber-500/15 text-amber-200'
+                  : 'border-zinc-800 bg-zinc-900/60 text-zinc-400 hover:text-white hover:bg-white/5'
+              }`}
             >
-              <Gift className="w-4 h-4 mr-3 text-amber-400 animate-pulse" />
-              Lucky Spin & Win
+              <div className="flex items-center">
+                <Gift className={`w-4 h-4 mr-3 ${spinCount > 0 ? 'text-amber-400 animate-pulse' : 'text-zinc-500'}`} />
+                <span>Daily Lucky Spin</span>
+              </div>
+              {spinCount > 0 ? (
+                <span className="px-2 py-0.5 rounded-full bg-amber-400 text-black text-xs font-black">
+                  FREE
+                </span>
+              ) : (
+                <span className="text-[11px] text-zinc-500 font-mono">
+                  12:01 AM Reset
+                </span>
+              )}
             </button>
 
             <button 

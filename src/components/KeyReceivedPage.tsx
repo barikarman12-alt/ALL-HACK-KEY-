@@ -16,8 +16,10 @@ import {
   Send,
   Smartphone
 } from 'lucide-react';
-import { useInventory, resolveProductName } from '../store';
+import { useInventory, resolveProductName, useSpinBalance } from '../store';
 import { useAuth } from '../lib/useAuth';
+import { SpinWheelModal } from './SpinWheelModal';
+import { Gift } from 'lucide-react';
 
 export interface KeyReceivedData {
   key?: string;
@@ -38,8 +40,10 @@ interface KeyReceivedPageProps {
 export function KeyReceivedPage({ data, onBackToHome, onViewKeyHistory }: KeyReceivedPageProps) {
   const { currentUser } = useAuth();
   const { purchases, settings, items } = useInventory(currentUser?.uid, currentUser?.email || undefined);
+  const { spinBalance, countdown } = useSpinBalance(currentUser?.uid);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [allCopied, setAllCopied] = useState(false);
+  const [showSpinModal, setShowSpinModal] = useState(false);
   
   const apkDownloadLink = "https://t.me/allfileupdatehack";
 
@@ -271,6 +275,54 @@ export function KeyReceivedPage({ data, onBackToHome, onViewKeyHistory }: KeyRec
             )}
           </div>
 
+          {/* Daily Free Lucky Spin Banner */}
+          <div className={`relative overflow-hidden rounded-2xl border p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-4 ${
+            spinBalance > 0
+              ? 'bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border-amber-500/40 shadow-[0_0_30px_rgba(245,158,11,0.15)]'
+              : 'bg-zinc-900/60 border-zinc-800'
+          }`}>
+            <div className="flex items-center gap-3.5 text-left w-full sm:w-auto">
+              <div className={`w-12 h-12 rounded-2xl border flex items-center justify-center shrink-0 ${
+                spinBalance > 0
+                  ? 'bg-gradient-to-br from-amber-500/20 to-orange-500/20 border-amber-500/40 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                  : 'bg-zinc-800/80 border-zinc-700 text-zinc-500'
+              }`}>
+                <Gift className={`w-6 h-6 ${spinBalance > 0 ? 'text-amber-400 animate-bounce' : 'text-zinc-500'}`} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded-full font-extrabold text-[10px] uppercase tracking-wider ${
+                    spinBalance > 0 ? 'bg-amber-500 text-zinc-950' : 'bg-zinc-800 text-zinc-400 border border-zinc-700'
+                  }`}>
+                    {spinBalance > 0 ? '1 Free Available' : 'Daily Spin Used'}
+                  </span>
+                  <span className="text-xs text-amber-300 font-semibold">24h Free Lucky Spin</span>
+                </div>
+                <h3 className="text-white font-bold text-sm sm:text-base mt-0.5">
+                  {spinBalance > 0 ? '🎡 Try Your Daily Free Lucky Wheel Spin!' : '⏰ Aaj Ka Daily Spin Use Ho Chuka Hai'}
+                </h3>
+                <p className="text-xs text-zinc-400 mt-0.5">
+                  {spinBalance > 0 
+                    ? 'Har 24 ghante (roz 12:01 AM) me 1 free spin milta hai. Wheel ghumayein aur next key order par discounts jeetein!'
+                    : `Har 24 ghante me ek baar spin milta hai. Agla spin 12:01 AM pe unlock hoga (Next reset: ${countdown}).`
+                  }
+                </p>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowSpinModal(true)}
+              className={`w-full sm:w-auto shrink-0 px-5 py-3 rounded-xl font-extrabold text-xs sm:text-sm transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 ${
+                spinBalance > 0
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-zinc-950 shadow-[0_0_20px_rgba(245,158,11,0.35)]'
+                  : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border border-zinc-700'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span>{spinBalance > 0 ? 'Spin Wheel Now' : 'Check Spin Status'}</span>
+            </button>
+          </div>
+
           {/* Primary Action Button: Download Application */}
           <div className="pt-2">
             <a
@@ -331,6 +383,13 @@ export function KeyReceivedPage({ data, onBackToHome, onViewKeyHistory }: KeyRec
 
       </div>
 
+      {showSpinModal && (
+        <SpinWheelModal 
+          isOpen={showSpinModal} 
+          onClose={() => setShowSpinModal(false)} 
+          onNavigateToBuyKey={onBackToHome} 
+        />
+      )}
     </div>
   );
 }

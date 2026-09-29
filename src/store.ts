@@ -866,11 +866,83 @@ onAuthStateChanged(auth, (user) => {
               store.notify();
             }
           }
+          if (typeof data.lastDailySpinTime === 'number') {
+            if (data.lastDailySpinTime > memoryLastDailySpinTime) {
+              memoryLastDailySpinTime = data.lastDailySpinTime;
+              try {
+                localStorage.setItem('daily_spin_last_timestamp', data.lastDailySpinTime.toString());
+                localStorage.setItem(`spin_last_time_${user.uid}`, data.lastDailySpinTime.toString());
+              } catch(e) {}
+              store.notify();
+            }
+          }
         }
       }, () => {});
     } catch(e) {}
   }
 });
+
+let memoryLastDailySpinTime = 0;
+
+export function getLastSpinTimestamp(userId?: string): number {
+  let latest = memoryLastDailySpinTime;
+  try {
+    const keysToCheck = [
+      'daily_spin_last_timestamp',
+      'spin_last_time_global',
+      'spin_last_time_guest'
+    ];
+    if (userId) {
+      keysToCheck.push(`spin_last_time_${userId}`);
+      keysToCheck.push(`daily_spin_user_${userId}`);
+    }
+    for (const k of keysToCheck) {
+      const val = localStorage.getItem(k);
+      if (val) {
+        const num = parseInt(val, 10);
+        if (!isNaN(num) && num > latest) {
+          latest = num;
+        }
+      }
+    }
+  } catch {}
+  return latest;
+}
+
+export function getDailySpinCycle() {
+  const now = new Date();
+  // Daily Reset at 12:01 AM (00:01:00.000)
+  const todayReset = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 1, 0, 0);
+
+  let currentCycleStart: Date;
+  let nextReset: Date;
+
+  if (now.getTime() >= todayReset.getTime()) {
+    currentCycleStart = todayReset;
+    nextReset = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 1, 0, 0);
+  } else {
+    currentCycleStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1, 0, 1, 0, 0);
+    nextReset = todayReset;
+  }
+
+  const msUntilNextReset = Math.max(0, nextReset.getTime() - now.getTime());
+  const totalSec = Math.floor(msUntilNextReset / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  const formatted = `${hours.toString().padStart(2, '0')}h ${minutes.toString().padStart(2, '0')}m ${seconds.toString().padStart(2, '0')}s`;
+
+  return {
+    now,
+    currentCycleStart,
+    nextReset,
+    msUntilNextReset,
+    hours,
+    minutes,
+    seconds,
+    formatted
+  };
+}
 
 export const store = {
   getInventory: () => inventory,
@@ -991,17 +1063,6 @@ export const store = {
     if (record) {
       purchases = [record, ...purchases];
       syncPurchasesToStorage();
-
-      // Auto-credit Lucky Spin Chances for keys purchased (1 key = 1 spin)
-      const spinsPerKey = settings.spinWheel?.freeSpinsPerKey ?? 1;
-      const earnedSpins = (purchased.length || count) * spinsPerKey;
-      if (earnedSpins > 0) {
-        try {
-          const spinKey = `spin_balance_${userId || 'guest'}`;
-          const currentSpins = parseInt(localStorage.getItem(spinKey) || '0', 10);
-          localStorage.setItem(spinKey, (currentSpins + earnedSpins).toString());
-        } catch (e) {}
-      }
 
       if (userId && userId !== 'anonymous') {
         try {
@@ -1659,6 +1720,60 @@ export const store = {
     return [...pendingOrders].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   },
 
+  hasUsedDailySpin: (userId?: string): boolean => {
+    try {
+      const cycle = getDailySpinCycle();
+      const lastSpinTime = getLastSpinTimestamp(userId);
+      return Boolean(lastSpinTime && lastSpinTime >= cycle.currentCycleStart.getTime());
+    } catch {
+      return false;
+    }
+  },
+
+  getSpinBalance: (userId?: string): number => {
+    try {
+      const hasUsed = store.hasUsedDailySpin(userId);
+      if (hasUsed) {
+        return 0;
+      }
+      return 1;
+    } catch {
+      return 0;
+    }
+  },
+
+  addSpins: (userId: string | undefined, count: number): number => {
+    return store.getSpinBalance(userId);
+  },
+
+  deductSpin: (userId?: string): boolean => {
+    const cycle = getDailySpinCycle();
+    const hasUsed = store.hasUsedDailySpin(userId);
+    if (hasUsed) {
+      return false;
+    }
+
+    const nowTime = Date.now();
+    memoryLastDailySpinTime = nowTime;
+
+    try {
+      localStorage.setItem('daily_spin_last_timestamp', nowTime.toString());
+      localStorage.setItem('spin_last_time_global', nowTime.toString());
+      localStorage.setItem('spin_last_time_guest', nowTime.toString());
+      if (userId && userId !== 'guest' && userId !== 'anonymous') {
+        localStorage.setItem(`spin_last_time_${userId}`, nowTime.toString());
+        localStorage.setItem(`daily_spin_user_${userId}`, nowTime.toString());
+        setDoc(doc(db, 'users', userId), {
+          lastDailySpinTime: nowTime,
+          lastDailySpinCycle: cycle.currentCycleStart.toISOString()
+        }, { merge: true }).catch(() => {});
+      }
+    } catch {}
+
+    store.notify();
+    return true;
+  },
+
   subscribe: (listener: () => void): (() => void) => {
     listeners.add(listener);
     return () => {
@@ -1852,3 +1967,36 @@ export function useUsers() {
     issueRefund: store.issueRefund
   };
 }
+
+export function useSpinBalance(userId?: string) {
+  const [spinBalance, setSpinBalance] = useState<number>(() => store.getSpinBalance(userId));
+  const [countdown, setCountdown] = useState<string>(() => getDailySpinCycle().formatted);
+  const [hasUsedToday, setHasUsedToday] = useState<boolean>(() => store.hasUsedDailySpin(userId));
+
+  useEffect(() => {
+    const update = () => {
+      const cycle = getDailySpinCycle();
+      setSpinBalance(store.getSpinBalance(userId));
+      setCountdown(cycle.formatted);
+      setHasUsedToday(store.hasUsedDailySpin(userId));
+    };
+
+    update();
+    const interval = setInterval(update, 1000);
+    const unsubscribe = store.subscribe(update);
+
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
+  }, [userId]);
+
+  return {
+    spinBalance,
+    hasUsedToday,
+    countdown,
+    addSpins: (count: number) => store.addSpins(userId, count),
+    deductSpin: () => store.deductSpin(userId)
+  };
+}
+
