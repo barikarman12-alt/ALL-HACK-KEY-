@@ -10,7 +10,9 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { useAuth } from '../lib/useAuth';
+import { useBalance } from '../store';
 import { createFamGatewayOrder } from '../lib/famPay';
+import { FamGatewayModal } from './FamGatewayModal';
 
 interface AddBalanceModalProps {
   isOpen: boolean;
@@ -19,10 +21,16 @@ interface AddBalanceModalProps {
 
 export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
   const { currentUser } = useAuth();
+  const { addBalance } = useBalance(currentUser?.uid);
   
   const [amount, setAmount] = useState<number>(100);
   const [isRedirecting, setIsRedirecting] = useState(false);
   const [error, setError] = useState('');
+
+  // Fam Gateway Modal State
+  const [famModalOpen, setFamModalOpen] = useState(false);
+  const [famCheckoutUrl, setFamCheckoutUrl] = useState('');
+  const [famOrderId, setFamOrderId] = useState('');
 
   if (!isOpen) return null;
 
@@ -43,7 +51,7 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
         durationLabel: `₹${amount} Balance Deposit`
       });
 
-      // Save pending order metadata so /verify-payment handles the wallet credit
+      // Save pending order metadata
       localStorage.setItem('pendingPayment', JSON.stringify({
         orderId: order.orderId,
         type: 'balance',
@@ -55,12 +63,29 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
         timestamp: Date.now()
       }));
 
-      // Directly forward user to the official Gateway checkout page
-      window.location.href = order.checkoutUrl;
+      // Open Inline Fam Gateway Popup Modal (NO REDIRECT!)
+      setFamCheckoutUrl(order.checkoutUrl);
+      setFamOrderId(order.orderId);
+      setFamModalOpen(true);
+      setIsRedirecting(false);
     } catch (err: any) {
       setError(err?.message || 'Failed to initialize payment gateway. Please retry.');
       setIsRedirecting(false);
     }
+  };
+
+  const handlePaymentSuccess = (paymentData: any) => {
+    if (currentUser?.uid) {
+      addBalance(currentUser.uid, amount, {
+        method: 'FamGateway UPI QR',
+        referenceId: paymentData.orderId,
+        note: `Instant Wallet Deposit of ₹${amount}`,
+        type: 'deposit',
+        userEmail: currentUser.email || undefined
+      });
+    }
+    setFamModalOpen(false);
+    onClose();
   };
 
   const handleClose = () => {
@@ -176,25 +201,36 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
                 </div>
               </div>
               
-              {/* Primary Action Button: Direct Gateway Redirect */}
+              {/* Primary Action Button: Inline Modal Checkout */}
               <button 
                 onClick={handleProceedToGateway}
                 disabled={isRedirecting}
                 className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-violet-600 to-indigo-600 hover:from-indigo-500 hover:to-violet-500 text-white text-sm sm:text-base font-bold rounded-xl shadow-[0_4px_20px_rgba(99,102,241,0.35)] hover:shadow-[0_4px_25px_rgba(99,102,241,0.5)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98] disabled:opacity-50"
               >
                 <CreditCard className="w-4 h-4" />
-                <span>Pay via Gateway (₹{amount})</span>
+                <span>Pay via UPI (₹{amount})</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
 
               {/* Muted Footer */}
               <div className="text-[10px] text-zinc-500 text-center tracking-tight theme-text-sub pt-1">
-                🔒 All UPI Apps (PhonePe, GPay, Paytm) • Cards & NetBanking Supported
+                🔒 All UPI Apps (PhonePe, GPay, Paytm) Supported
               </div>
             </>
           )}
         </div>
       </div>
+
+      {/* Inline Fam Gateway Checkout Modal */}
+      <FamGatewayModal
+        isOpen={famModalOpen}
+        onClose={() => setFamModalOpen(false)}
+        checkoutUrl={famCheckoutUrl}
+        orderId={famOrderId}
+        amount={amount}
+        productName="Wallet Balance Deposit"
+        onSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 }

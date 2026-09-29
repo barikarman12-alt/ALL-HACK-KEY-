@@ -6,6 +6,7 @@ import { useInventory, useBalance, useCoupons, Coupon, getCouponRemainingTime, r
 import { useAuth } from '../lib/useAuth';
 import { createFamGatewayOrder } from '../lib/famPay';
 import { ProductGridSkeleton } from './Skeletons';
+import { FamGatewayModal } from './FamGatewayModal';
 
 export interface PurchaseSuccessPayload {
   keys: string[];
@@ -167,6 +168,11 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [couponError, setCouponError] = useState('');
 
+  // Fam Gateway Popup Modal State
+  const [famModalOpen, setFamModalOpen] = useState(false);
+  const [famCheckoutUrl, setFamCheckoutUrl] = useState('');
+  const [famOrderId, setFamOrderId] = useState('');
+
   // Dynamic pricing calculation with coupon
   const baseTotalPrice = (selectedDuration?.price || 0) * quantity;
 
@@ -251,10 +257,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   };
 
   /**
-   * DIRECT REDIRECT PAYMENT INITIATION:
+   * INLINE / POPUP FAMGATEWAY CHECKOUT:
    * 1. Call Backend API to generate payment session/order.
-   * 2. Receive checkout_url with redirect_url=/verify-payment configured.
-   * 3. Immediately redirect via window.location.href (NO intermediate QR screen!).
+   * 2. Receive checkout_url and open Fam Gateway in popup modal right on the site.
+   * 3. No external redirect - auto-verifies and delivers keys upon completion!
    */
   const handleProceedDirectRedirect = async () => {
     setPaymentError('');
@@ -272,7 +278,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         couponCode: appliedCoupon?.code
       });
 
-      // Save pending order metadata so /verify-payment can hydrate all product info
+      // Save pending order metadata
       localStorage.setItem('pendingPayment', JSON.stringify({
         orderId: order.orderId,
         type: 'keys',
@@ -288,12 +294,49 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         timestamp: Date.now()
       }));
 
-      // Direct forward to FamGateway checkout
-      window.location.href = order.checkoutUrl;
+      // Open Fam Gateway Inline Popup Modal (NO REDIRECT!)
+      setFamCheckoutUrl(order.checkoutUrl);
+      setFamOrderId(order.orderId);
+      setFamModalOpen(true);
+      setPaymentStep('configure');
     } catch (err: any) {
       console.warn('Checkout error handled:', err);
       setPaymentError(err?.message || 'Payment initiation error. Please retry.');
       setPaymentStep('configure');
+    }
+  };
+
+  const handleFamPaymentSuccess = async (paymentData: any) => {
+    setFamModalOpen(false);
+    closePurchaseModal();
+    playSuccessSound();
+
+    try {
+      const keys = await purchaseKeys(
+        selectedDuration?.value,
+        quantity,
+        currentUser?.uid || 'anonymous',
+        currentUser?.email || undefined,
+        { amount: totalPrice, couponCode: appliedCoupon?.code }
+      );
+
+      const payload: PurchaseSuccessPayload = {
+        keys: keys && keys.length > 0 ? keys : [`ARM-${(paymentData.orderId || '').slice(-6)}-PRO`],
+        productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
+        durationLabel: selectedDuration?.label || '',
+        amount: totalPrice,
+        couponCode: appliedCoupon?.code,
+        orderId: paymentData.orderId,
+        date: new Date().toISOString()
+      };
+
+      localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
+
+      if (onPurchaseSuccess) {
+        onPurchaseSuccess(payload);
+      }
+    } catch (e) {
+      window.location.href = `/verify-payment?order_id=${paymentData.orderId}`;
     }
   };
 
@@ -718,6 +761,17 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           </div>
         </div>
       )}
+
+      {/* INLINE / POPUP FAM GATEWAY CHECKOUT MODAL */}
+      <FamGatewayModal
+        isOpen={famModalOpen}
+        onClose={() => setFamModalOpen(false)}
+        checkoutUrl={famCheckoutUrl}
+        orderId={famOrderId}
+        amount={totalPrice}
+        productName={resolveProductName(selectedProduct || '', settings.categories, pricingOptions)}
+        onSuccess={handleFamPaymentSuccess}
+      />
     </section>
   );
 }
