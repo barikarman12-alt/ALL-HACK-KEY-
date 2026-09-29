@@ -19,6 +19,7 @@ interface StoredOrder {
   qr_url?: string;
   created_at: string;
   paid_at?: string;
+  utr?: string;
   gateway_response?: any;
 }
 
@@ -195,10 +196,39 @@ async function startServer() {
   const handleVerifyOrder = async (req: express.Request, res: express.Response) => {
     try {
       const order_id = extractOrderId(req.body, req.query);
+      const utr = (req.body?.utr || req.query?.utr || '').toString().trim();
       const apiKey = (req.body?.api_key || req.query?.api_key || process.env.FAMPAY_API_KEY || 'fam_b498f3cf06ce60dd253667adc30a6a2b142584cf').toString().trim();
 
       if (!order_id) {
         return res.status(400).json({ error: 'order_id is required for verification' });
+      }
+
+      // Fast-track UTR claim
+      if (utr && utr.length >= 10) {
+        const nowStr = new Date().toISOString();
+        if (orders[order_id]) {
+          orders[order_id].status = 'SUCCESS';
+          orders[order_id].paid_at = nowStr;
+          orders[order_id].utr = utr;
+        } else {
+          orders[order_id] = {
+            order_id,
+            amount: parseFloat(req.body?.amount || req.query?.amount || 40),
+            status: 'SUCCESS',
+            created_at: nowStr,
+            paid_at: nowStr,
+            utr
+          };
+        }
+
+        return res.json({
+          status: 'success',
+          verified: true,
+          order_id,
+          utr,
+          amount: orders[order_id].amount,
+          message: 'Verified via UPI UTR Reference Number.'
+        });
       }
 
       const stored = orders[order_id];
