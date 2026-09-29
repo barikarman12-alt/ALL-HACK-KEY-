@@ -7,6 +7,7 @@ import { useAuth } from '../lib/useAuth';
 import { createFamGatewayOrder } from '../lib/famPay';
 import { ProductGridSkeleton } from './Skeletons';
 import { FamGatewayModal } from './FamGatewayModal';
+import { triggerCelebrationConfetti } from '../lib/celebrate';
 
 export interface PurchaseSuccessPayload {
   keys: string[];
@@ -173,6 +174,47 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [famCheckoutUrl, setFamCheckoutUrl] = useState('');
   const [famOrderId, setFamOrderId] = useState('');
 
+  // Auto-restore active payment QR when returning from UPI apps, page reload, or web back
+  useEffect(() => {
+    const restorePendingPayment = () => {
+      try {
+        const raw = localStorage.getItem('pendingPayment');
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (parsed?.orderId && parsed?.checkoutUrl && parsed?.timestamp) {
+          const elapsed = Date.now() - parsed.timestamp;
+          if (elapsed < 300000) { // 5 minutes
+            setFamCheckoutUrl(parsed.checkoutUrl);
+            setFamOrderId(parsed.orderId);
+            setFamModalOpen(true);
+          } else {
+            localStorage.removeItem('pendingPayment');
+          }
+        }
+      } catch (err) {}
+    };
+
+    restorePendingPayment();
+
+    const handleReturn = () => {
+      if (document.visibilityState === 'visible') {
+        restorePendingPayment();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleReturn);
+    window.addEventListener('focus', handleReturn);
+    window.addEventListener('pageshow', restorePendingPayment);
+    window.addEventListener('popstate', restorePendingPayment);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleReturn);
+      window.removeEventListener('focus', handleReturn);
+      window.removeEventListener('pageshow', restorePendingPayment);
+      window.removeEventListener('popstate', restorePendingPayment);
+    };
+  }, []);
+
   // Dynamic pricing calculation with coupon
   const baseTotalPrice = (selectedDuration?.price || 0) * quantity;
 
@@ -281,6 +323,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       // Save pending order metadata
       localStorage.setItem('pendingPayment', JSON.stringify({
         orderId: order.orderId,
+        checkoutUrl: order.checkoutUrl,
         type: 'keys',
         amount: totalPrice,
         userId: currentUser?.uid,
@@ -310,6 +353,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     setFamModalOpen(false);
     closePurchaseModal();
     playSuccessSound();
+    triggerCelebrationConfetti();
 
     try {
       const keys = await purchaseKeys(

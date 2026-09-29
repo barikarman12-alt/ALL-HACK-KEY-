@@ -54,6 +54,7 @@ export function AddBalanceModal({ isOpen, onClose }: AddBalanceModalProps) {
       // Save pending order metadata
       localStorage.setItem('pendingPayment', JSON.stringify({
         orderId: order.orderId,
+        checkoutUrl: order.checkoutUrl,
         type: 'balance',
         amount: amount,
         userId: currentUser?.uid,
