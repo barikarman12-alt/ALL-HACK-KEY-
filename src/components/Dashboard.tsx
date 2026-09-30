@@ -64,7 +64,7 @@ import {
   Send
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
+import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, Coupon, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
 import { testFamApiKeyConnection, verifyFamGatewayOrder, DEFAULT_FAM_API_KEY } from '../lib/famPay';
 
 export interface DashboardProps {
@@ -96,7 +96,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     } catch {}
   };
   const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, updateSpinWheelSettings, purchases, balances, addProduct, deleteProduct } = useInventory();
-  const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon } = useCoupons();
+  const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon, quickAdjustCouponDiscount, setCouponDiscountPercent } = useCoupons();
   const { faqs, addFAQ, updateFAQ, deleteFAQ, toggleFAQ, resetDefaultFAQs } = useFAQs();
   const { users, refreshUsers, updateUserBalance, issueRefund } = useUsers();
   const { allTransactions: allWalletTransactions } = useWalletTransactions();
@@ -265,6 +265,16 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
   const [draftProb50, setDraftProb50] = useState(
     (settings.spinWheel?.prob50 ?? 10).toString()
   );
+  // Configurable discount percentage per slice (Slice 1 = 0%, Slice 2, Slice 3, Slice 4 / Jackpot)
+  const [draftDiscount1, setDraftDiscount1] = useState(
+    (settings.spinWheel?.discountSlice1 ?? 10).toString()
+  );
+  const [draftDiscount2, setDraftDiscount2] = useState(
+    (settings.spinWheel?.discountSlice2 ?? 20).toString()
+  );
+  const [draftDiscount3, setDraftDiscount3] = useState(
+    (settings.spinWheel?.discountSlice3 ?? 50).toString()
+  );
   const [draftCouponExpiryDays, setDraftCouponExpiryDays] = useState(
     (settings.spinWheel?.couponExpiryDays ?? 3).toString()
   );
@@ -285,6 +295,9 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
       setDraftProb10((settings.spinWheel.prob10 ?? 20).toString());
       setDraftProb20((settings.spinWheel.prob20 ?? 20).toString());
       setDraftProb50((settings.spinWheel.prob50 ?? 10).toString());
+      setDraftDiscount1((settings.spinWheel.discountSlice1 ?? 10).toString());
+      setDraftDiscount2((settings.spinWheel.discountSlice2 ?? 20).toString());
+      setDraftDiscount3((settings.spinWheel.discountSlice3 ?? 50).toString());
       setDraftCouponExpiryDays((settings.spinWheel.couponExpiryDays ?? 3).toString());
       setDraftCouponUsageLimit((settings.spinWheel.couponUsageLimit ?? 1).toString());
       setDraftFreeSpinsPerKey((settings.spinWheel.freeSpinsPerKey ?? 1).toString());
@@ -297,6 +310,9 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
       const p10 = Math.max(0, parseFloat(draftProb10) || 0);
       const p20 = Math.max(0, parseFloat(draftProb20) || 0);
       const p50 = Math.max(0, parseFloat(draftProb50) || 0);
+      const d1 = Math.max(1, parseFloat(draftDiscount1) || 10);
+      const d2 = Math.max(1, parseFloat(draftDiscount2) || 20);
+      const d3 = Math.max(1, parseFloat(draftDiscount3) || 50);
       const expiry = Math.max(1, parseInt(draftCouponExpiryDays, 10) || 3);
       const usage = Math.max(1, parseInt(draftCouponUsageLimit, 10) || 1);
       const spins = Math.max(1, parseInt(draftFreeSpinsPerKey, 10) || 1);
@@ -314,13 +330,16 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
         prob10: p10,
         prob20: p20,
         prob50: p50,
+        discountSlice1: d1,
+        discountSlice2: d2,
+        discountSlice3: d3,
         couponExpiryDays: expiry,
         couponUsageLimit: usage,
         freeSpinsPerKey: spins,
         updatedAt: new Date().toISOString()
       });
 
-      setSpinSuccessMsg('🎡 Spin Wheel settings, probabilities & coupon limits saved and synced live!');
+      setSpinSuccessMsg('🎡 Spin Wheel settings, discount percentages & probabilities saved and synced live!');
       setSpinErrorMsg('');
       setTimeout(() => setSpinSuccessMsg(''), 4000);
     } catch (e: any) {
@@ -1097,6 +1116,71 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
   const [couponSuccessMsg, setCouponSuccessMsg] = useState('');
   const [deleteCouponConfirmId, setDeleteCouponConfirmId] = useState<string | null>(null);
   const [copiedCouponCode, setCopiedCouponCode] = useState<string | null>(null);
+
+  // Edit Coupon Modal States
+  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
+  const [editCouponCode, setEditCouponCode] = useState('');
+  const [editDiscountType, setEditDiscountType] = useState<'percentage' | 'flat'>('percentage');
+  const [editDiscountValue, setEditDiscountValue] = useState('20');
+  const [editMinSpend, setEditMinSpend] = useState('0');
+  const [editValidHours, setEditValidHours] = useState('0');
+  const [editMaxUses, setEditMaxUses] = useState('0');
+  const [editApplicableScope, setEditApplicableScope] = useState<'all' | 'specific'>('all');
+  const [editSelectedProducts, setEditSelectedProducts] = useState<string[]>([]);
+  const [editDescription, setEditDescription] = useState('');
+  const [editActive, setEditActive] = useState(true);
+  const [editError, setEditError] = useState('');
+
+  const handleOpenEditCoupon = (coupon: Coupon) => {
+    setEditingCoupon(coupon);
+    setEditCouponCode(coupon.code);
+    setEditDiscountType(coupon.discountType || 'percentage');
+    setEditDiscountValue((coupon.discountValue || 1).toString());
+    setEditMinSpend((coupon.minSpend || 0).toString());
+    setEditValidHours((coupon.validHours || 0).toString());
+    setEditMaxUses((coupon.maxUses || 0).toString());
+    setEditApplicableScope(coupon.applicableScope || 'all');
+    setEditSelectedProducts(coupon.applicableProducts || []);
+    setEditDescription(coupon.description || '');
+    setEditActive(coupon.active !== false);
+    setEditError('');
+  };
+
+  const handleSaveEditedCoupon = () => {
+    if (!editingCoupon) return;
+    const val = parseFloat(editDiscountValue);
+    if (isNaN(val) || val <= 0) {
+      setEditError('Please enter a valid discount value greater than 0.');
+      return;
+    }
+    if (editDiscountType === 'percentage' && val > 90) {
+      setEditError('Percentage discount cannot exceed 90%.');
+      return;
+    }
+    const hoursNum = parseFloat(editValidHours);
+    const validHours = (!isNaN(hoursNum) && hoursNum > 0) ? hoursNum : undefined;
+    const expiresAt = validHours ? new Date(Date.now() + validHours * 3600 * 1000).toISOString() : null;
+    const maxUsesNum = parseInt(editMaxUses);
+    const maxUses = (!isNaN(maxUsesNum) && maxUsesNum > 0) ? maxUsesNum : undefined;
+
+    updateCoupon(editingCoupon.id, {
+      code: editCouponCode.trim().toUpperCase() || editingCoupon.code,
+      discountType: editDiscountType,
+      discountValue: val,
+      minSpend: parseFloat(editMinSpend) || 0,
+      description: editDescription.trim() || `${val}${editDiscountType === 'percentage' ? '% Off' : '₹ Flat Off'}`,
+      active: editActive,
+      validHours,
+      expiresAt,
+      maxUses,
+      applicableScope: editApplicableScope,
+      applicableProducts: editApplicableScope === 'specific' ? editSelectedProducts : undefined
+    });
+
+    setCouponSuccessMsg(`✅ Coupon "${editCouponCode}" updated to ${val}${editDiscountType === 'percentage' ? '%' : '₹'} discount!`);
+    setEditingCoupon(null);
+    setTimeout(() => setCouponSuccessMsg(''), 4000);
+  };
   
   // Dynamic Stats Calculation
   const totalRevenue = purchases.reduce((acc, order) => {
@@ -1221,15 +1305,6 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
       setCouponFormError('Percentage discount cannot exceed 90%.');
       return;
     }
-    if (coupons.some(c => c.code.toUpperCase() === code)) {
-      setCouponFormError(`Coupon code "${code}" already exists.`);
-      return;
-    }
-
-    if (newApplicableScope === 'specific' && newSelectedProducts.length === 0) {
-      setCouponFormError('Please select at least one product for Specific Products scope.');
-      return;
-    }
 
     const hoursNum = parseFloat(newValidHours);
     const validHours = (!isNaN(hoursNum) && hoursNum > 0) ? hoursNum : undefined;
@@ -1237,6 +1312,33 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
 
     const maxUsesNum = parseInt(newMaxUses);
     const maxUses = (!isNaN(maxUsesNum) && maxUsesNum > 0) ? maxUsesNum : undefined;
+
+    const existingCoupon = coupons.find(c => c.code.toUpperCase() === code);
+    if (existingCoupon) {
+      // Direct update for existing coupon
+      updateCoupon(existingCoupon.id, {
+        discountType: newDiscountType,
+        discountValue: val,
+        minSpend: parseFloat(newMinSpend) || 0,
+        description: newDescription.trim() || `${val}${newDiscountType === 'percentage' ? '% Off' : '₹ Flat Off'}`,
+        validHours,
+        expiresAt,
+        maxUses,
+        applicableScope: newApplicableScope,
+        applicableProducts: newApplicableScope === 'specific' ? newSelectedProducts : undefined
+      });
+      setNewCouponCode('');
+      setNewDescription('');
+      setCouponFormError('');
+      setCouponSuccessMsg(`✅ Existing Coupon "${code}" updated to ${val}${newDiscountType === 'percentage' ? '%' : '₹'} discount!`);
+      setTimeout(() => setCouponSuccessMsg(''), 4000);
+      return;
+    }
+
+    if (newApplicableScope === 'specific' && newSelectedProducts.length === 0) {
+      setCouponFormError('Please select at least one product for Specific Products scope.');
+      return;
+    }
 
     addCoupon({
       code,
@@ -4115,19 +4217,62 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                 </div>
 
                 {/* Discount Value */}
-                <div className="lg:col-span-1">
-                  <label className="block text-xs font-semibold uppercase text-zinc-400 mb-1.5">
-                    Discount Value {newDiscountType === 'percentage' ? '(%)' : '(₹)'} *
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={newDiscountType === 'percentage' ? '90' : '99999'}
-                    value={newDiscountValue}
-                    onChange={(e) => setNewDiscountValue(e.target.value)}
-                    placeholder={newDiscountType === 'percentage' ? '20' : '50'}
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-fuchsia-500"
-                  />
+                <div className="lg:col-span-1 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-semibold uppercase text-zinc-400">
+                      Discount Value {newDiscountType === 'percentage' ? '(%)' : '(₹)'} *
+                    </label>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max={newDiscountType === 'percentage' ? '90' : '99999'}
+                      value={newDiscountValue}
+                      onChange={(e) => setNewDiscountValue(e.target.value)}
+                      placeholder={newDiscountType === 'percentage' ? '20' : '50'}
+                      className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-fuchsia-500 font-mono font-bold"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-bold">
+                      {newDiscountType === 'percentage' ? '% OFF' : '₹ FLAT'}
+                    </span>
+                  </div>
+                  {newDiscountType === 'percentage' && (
+                    <div className="flex items-center gap-1 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setNewDiscountValue((prev) => Math.max(1, (parseFloat(prev) || 20) - 5).toString())}
+                        className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-rose-300 rounded text-[10px] font-bold"
+                        title="Reduce by 5%"
+                      >
+                        -5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewDiscountValue((prev) => Math.max(1, (parseFloat(prev) || 20) - 10).toString())}
+                        className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-rose-400 rounded text-[10px] font-bold"
+                        title="Reduce by 10%"
+                      >
+                        -10%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewDiscountValue((prev) => Math.min(90, (parseFloat(prev) || 20) + 5).toString())}
+                        className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-emerald-400 rounded text-[10px] font-bold"
+                        title="Increase by 5%"
+                      >
+                        +5%
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewDiscountValue((prev) => Math.min(90, (parseFloat(prev) || 20) + 10).toString())}
+                        className="px-2 py-0.5 bg-zinc-800 hover:bg-zinc-700 text-emerald-300 rounded text-[10px] font-bold"
+                        title="Increase by 10%"
+                      >
+                        +10%
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Validity Hours (Kitne Hours Kaam Karega) */}
@@ -4470,13 +4615,71 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                         </td>
 
                         <td className="py-4 px-6 text-sm">
-                          <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
-                            coupon.discountType === 'percentage'
-                              ? 'bg-fuchsia-500/10 text-fuchsia-400 border border-fuchsia-500/20'
-                              : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-                          }`}>
-                            {coupon.discountType === 'percentage' ? `${coupon.discountValue}% OFF` : `₹${coupon.discountValue} FLAT`}
-                          </span>
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-bold ${
+                                coupon.discountType === 'percentage'
+                                  ? 'bg-fuchsia-500/10 text-fuchsia-400 border border-fuchsia-500/20'
+                                  : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                              }`}>
+                                {coupon.discountType === 'percentage' ? `${coupon.discountValue}% OFF` : `₹${coupon.discountValue} FLAT`}
+                              </span>
+                            </div>
+
+                            {/* Quick Percent Steppers */}
+                            {coupon.discountType === 'percentage' && (
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    quickAdjustCouponDiscount(coupon.id, -10);
+                                    setCouponSuccessMsg(`📉 Reduced "${coupon.code}" discount to ${Math.max(1, coupon.discountValue - 10)}%`);
+                                    setTimeout(() => setCouponSuccessMsg(''), 3000);
+                                  }}
+                                  className="px-1.5 py-0.5 bg-rose-500/10 hover:bg-rose-500/25 text-rose-300 border border-rose-500/20 rounded text-[10px] font-bold transition-all cursor-pointer"
+                                  title="Reduce discount by 10%"
+                                >
+                                  -10%
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    quickAdjustCouponDiscount(coupon.id, -5);
+                                    setCouponSuccessMsg(`📉 Reduced "${coupon.code}" discount to ${Math.max(1, coupon.discountValue - 5)}%`);
+                                    setTimeout(() => setCouponSuccessMsg(''), 3000);
+                                  }}
+                                  className="px-1.5 py-0.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded text-[10px] font-medium transition-all cursor-pointer"
+                                  title="Reduce discount by 5%"
+                                >
+                                  -5%
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    quickAdjustCouponDiscount(coupon.id, 5);
+                                    setCouponSuccessMsg(`📈 Increased "${coupon.code}" discount to ${Math.min(90, coupon.discountValue + 5)}%`);
+                                    setTimeout(() => setCouponSuccessMsg(''), 3000);
+                                  }}
+                                  className="px-1.5 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded text-[10px] font-medium transition-all cursor-pointer"
+                                  title="Increase discount by 5%"
+                                >
+                                  +5%
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    quickAdjustCouponDiscount(coupon.id, 10);
+                                    setCouponSuccessMsg(`📈 Increased "${coupon.code}" discount to ${Math.min(90, coupon.discountValue + 10)}%`);
+                                    setTimeout(() => setCouponSuccessMsg(''), 3000);
+                                  }}
+                                  className="px-1.5 py-0.5 bg-emerald-500/10 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/20 rounded text-[10px] font-bold transition-all cursor-pointer"
+                                  title="Increase discount by 10%"
+                                >
+                                  +10%
+                                </button>
+                              </div>
+                            )}
+                          </div>
                         </td>
 
                         {/* Scope / Products Column */}
@@ -4597,27 +4800,37 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                   deleteCoupon(coupon.id);
                                   setDeleteCouponConfirmId(null);
                                 }}
-                                className="px-2 py-1 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded text-xs font-semibold transition-colors"
+                                className="px-2 py-1 bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 rounded text-xs font-semibold transition-colors cursor-pointer"
                               >
                                 Yes
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setDeleteCouponConfirmId(null)}
-                                className="px-2 py-1 bg-zinc-800 text-zinc-400 hover:bg-zinc-700 rounded text-xs transition-colors"
+                                className="px-2 py-1 bg-zinc-800 text-zinc-400 hover:bg-zinc-700 rounded text-xs transition-colors cursor-pointer"
                               >
                                 Cancel
                               </button>
                             </div>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => setDeleteCouponConfirmId(coupon.id)}
-                              className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-950/20 rounded-lg transition-colors"
-                              title="Delete Coupon"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditCoupon(coupon)}
+                                className="p-1.5 text-zinc-400 hover:text-fuchsia-300 hover:bg-fuchsia-950/30 rounded-lg transition-colors cursor-pointer"
+                                title="Edit Coupon Discount % & Rules"
+                              >
+                                <Edit3 className="w-4 h-4" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteCouponConfirmId(coupon.id)}
+                                className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-950/20 rounded-lg transition-colors cursor-pointer"
+                                title="Delete Coupon"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -4725,6 +4938,112 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
               </div>
             </div>
 
+            {/* Discount Percentages & Jackpot Controls Card (50% Control) */}
+            <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-6 backdrop-blur-xl theme-card space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Percent className="w-4 h-4 text-amber-400" />
+                    <span>Wheel Slices Discount Values & 50% Jackpot Control</span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Customize the exact discount percentage given on each slice. You can lower the 50% Jackpot to 15%, 25%, 30% or any percentage.
+                  </p>
+                </div>
+
+                {/* Quick Jackpot Discount Presets */}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-xs text-zinc-400 font-medium mr-1">Jackpot Presets:</span>
+                  {[
+                    { label: '15% Off', val: '15' },
+                    { label: '25% Off', val: '25' },
+                    { label: '30% Off', val: '30' },
+                    { label: '40% Off', val: '40' },
+                    { label: '50% Off (Max)', val: '50' }
+                  ].map((p) => (
+                    <button
+                      key={p.val}
+                      type="button"
+                      onClick={() => setDraftDiscount3(p.val)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        draftDiscount3 === p.val
+                          ? 'bg-amber-500 text-zinc-950 shadow-[0_0_10px_rgba(245,158,11,0.4)]'
+                          : 'bg-zinc-900 text-zinc-300 hover:text-white border border-white/10'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                {/* Slice 2 Discount */}
+                <div className="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+                  <span className="text-xs font-bold text-indigo-300">Slice 2 Discount Value</span>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="90"
+                      value={draftDiscount1}
+                      onChange={(e) => setDraftDiscount1(e.target.value)}
+                      className="w-full bg-zinc-900 border border-indigo-500/30 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500"
+                      placeholder="10"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400 font-bold">% OFF</span>
+                  </div>
+                  <p className="text-[11px] text-indigo-300/70">Applies on winning Slice 2</p>
+                </div>
+
+                {/* Slice 3 Discount */}
+                <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+                  <span className="text-xs font-bold text-emerald-300">Slice 3 Discount Value</span>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="90"
+                      value={draftDiscount2}
+                      onChange={(e) => setDraftDiscount2(e.target.value)}
+                      className="w-full bg-zinc-900 border border-emerald-500/30 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500"
+                      placeholder="20"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400 font-bold">% OFF</span>
+                  </div>
+                  <p className="text-[11px] text-emerald-300/70">Applies on winning Slice 3</p>
+                </div>
+
+                {/* Slice 4 / Jackpot Discount */}
+                <div className="bg-amber-950/20 border border-amber-500/40 rounded-2xl p-4 space-y-2 shadow-[0_0_15px_rgba(245,158,11,0.1)]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-amber-300 flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Jackpot Discount Value</span>
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 bg-amber-500/20 text-amber-300 font-bold rounded-full">
+                      Full Control
+                    </span>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="90"
+                      value={draftDiscount3}
+                      onChange={(e) => setDraftDiscount3(e.target.value)}
+                      className="w-full bg-zinc-900 border border-amber-500/50 rounded-xl px-3.5 py-2.5 text-sm text-white font-mono font-bold focus:outline-none focus:border-amber-400"
+                      placeholder="50"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-amber-400 font-bold">% OFF</span>
+                  </div>
+                  <p className="text-[11px] text-amber-300/80">
+                    Generates <code className="text-white">JACKPOT{draftDiscount3}-XXXX</code> with {draftDiscount3}% off
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* Probability Percentages Configuration Card */}
             <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-6 backdrop-blur-xl theme-card space-y-6">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4">
@@ -4812,10 +5131,10 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                   <p className="text-[11px] text-zinc-500">"Better luck next time" outcome</p>
                 </div>
 
-                {/* 10% OFF */}
+                {/* Slice 2 */}
                 <div className="bg-indigo-950/20 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-indigo-300">10% OFF Coupon</span>
+                    <span className="text-xs font-bold text-indigo-300">{draftDiscount1}% OFF Chance</span>
                     <span className="text-[10px] px-2 py-0.5 bg-indigo-900/60 text-indigo-300 rounded-full font-mono">Slice 2</span>
                   </div>
                   <div className="relative">
@@ -4831,13 +5150,13 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-indigo-400 font-bold">%</span>
                   </div>
-                  <p className="text-[11px] text-indigo-300/70">Generates <code className="text-white">LUCKY10-XXXX</code></p>
+                  <p className="text-[11px] text-indigo-300/70">Winning chance for {draftDiscount1}% discount</p>
                 </div>
 
-                {/* 20% OFF */}
+                {/* Slice 3 */}
                 <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-emerald-300">20% OFF Coupon</span>
+                    <span className="text-xs font-bold text-emerald-300">{draftDiscount2}% OFF Chance</span>
                     <span className="text-[10px] px-2 py-0.5 bg-emerald-900/60 text-emerald-300 rounded-full font-mono">Slice 3</span>
                   </div>
                   <div className="relative">
@@ -4853,13 +5172,13 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-emerald-400 font-bold">%</span>
                   </div>
-                  <p className="text-[11px] text-emerald-300/70">Generates <code className="text-white">LUCKY20-XXXX</code></p>
+                  <p className="text-[11px] text-emerald-300/70">Winning chance for {draftDiscount2}% discount</p>
                 </div>
 
-                {/* 50% OFF JACKPOT */}
+                {/* Slice 4 / Jackpot */}
                 <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-amber-300">🎉 50% OFF JACKPOT</span>
+                    <span className="text-xs font-bold text-amber-300">🎉 {draftDiscount3}% JACKPOT Chance</span>
                     <span className="text-[10px] px-2 py-0.5 bg-amber-900/60 text-amber-300 rounded-full font-mono">Slice 4</span>
                   </div>
                   <div className="relative">
@@ -4875,7 +5194,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                     />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-amber-400 font-bold">%</span>
                   </div>
-                  <p className="text-[11px] text-amber-300/70">Generates <code className="text-white">JACKPOT50-XXXX</code></p>
+                  <p className="text-[11px] text-amber-300/70">Winning chance for {draftDiscount3}% Jackpot</p>
                 </div>
               </div>
             </div>
@@ -6408,6 +6727,238 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
               >
                 <Check className="w-4 h-4" />
                 <span>{editingFaq ? 'Update Question' : 'Save Question'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Coupon Modal */}
+      {editingCoupon && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            onClick={() => setEditingCoupon(null)}
+          />
+          <div className="relative bg-[#121216] border border-fuchsia-500/40 shadow-[0_0_40px_rgba(224,0,255,0.25)] rounded-3xl w-full max-w-xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-white/10">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-fuchsia-600/20 border border-fuchsia-500/40 flex items-center justify-center text-fuchsia-400">
+                  <Tag className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white font-display">
+                    Edit Coupon ({editingCoupon.code})
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    Adjust discount percentage, flat rate, validity, limits, and product scope.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingCoupon(null)}
+                className="text-zinc-400 hover:text-white p-2 rounded-xl hover:bg-zinc-800 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4 flex-1">
+              {editError && (
+                <div className="p-3 bg-rose-950/30 border border-rose-500/40 text-rose-400 text-xs rounded-xl flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              {/* Coupon Code */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  Coupon Code
+                </label>
+                <input
+                  type="text"
+                  value={editCouponCode}
+                  onChange={(e) => setEditCouponCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
+                  className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-white focus:outline-none focus:border-fuchsia-500"
+                />
+              </div>
+
+              {/* Discount Type & Value */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                    Discount Type
+                  </label>
+                  <div className="grid grid-cols-2 gap-1 bg-[#181820] border border-white/10 rounded-xl p-1">
+                    <button
+                      type="button"
+                      onClick={() => setEditDiscountType('percentage')}
+                      className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        editDiscountType === 'percentage'
+                          ? 'bg-fuchsia-600 text-white'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      % Percentage
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditDiscountType('flat')}
+                      className={`py-1.5 text-xs font-bold rounded-lg transition-all ${
+                        editDiscountType === 'flat'
+                          ? 'bg-fuchsia-600 text-white'
+                          : 'text-zinc-400 hover:text-white'
+                      }`}
+                    >
+                      ₹ Flat
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                    Discount Value {editDiscountType === 'percentage' ? '(%)' : '(₹)'}
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max={editDiscountType === 'percentage' ? '90' : '99999'}
+                      value={editDiscountValue}
+                      onChange={(e) => setEditDiscountValue(e.target.value)}
+                      className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-2.5 text-sm font-mono font-bold text-white focus:outline-none focus:border-fuchsia-500"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 font-bold">
+                      {editDiscountType === 'percentage' ? '%' : '₹'}
+                    </span>
+                  </div>
+
+                  {/* Percentage Presets & Steppers */}
+                  {editDiscountType === 'percentage' && (
+                    <div className="flex flex-wrap items-center gap-1 pt-1">
+                      {['10', '15', '20', '25', '30', '40', '50'].map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setEditDiscountValue(p)}
+                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            editDiscountValue === p
+                              ? 'bg-fuchsia-600 text-white'
+                              : 'bg-zinc-800 text-zinc-400 hover:text-white'
+                          }`}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Validity & Usage Limits */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5 text-fuchsia-400" />
+                    <span>Valid Hours (0 = Lifetime)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editValidHours}
+                    onChange={(e) => setEditValidHours(e.target.value)}
+                    className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                    placeholder="24"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 flex items-center gap-1">
+                    <Users className="w-3.5 h-3.5 text-fuchsia-400" />
+                    <span>Max Uses Limit (0 = Unlimited)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editMaxUses}
+                    onChange={(e) => setEditMaxUses(e.target.value)}
+                    className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* Min Spend */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  Minimum Spend (₹)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editMinSpend}
+                  onChange={(e) => setEditMinSpend(e.target.value)}
+                  className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                  placeholder="0"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  Description / Badge Text
+                </label>
+                <input
+                  type="text"
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:outline-none focus:border-fuchsia-500"
+                  placeholder="e.g. 20% Off on all keys"
+                />
+              </div>
+
+              {/* Status Toggle */}
+              <div className="p-4 bg-[#181820] border border-white/10 rounded-2xl flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-white">Coupon Status</h4>
+                  <p className="text-xs text-zinc-400">
+                    {editActive ? 'Active and redeemable at checkout' : 'Disabled / Paused'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditActive(!editActive)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                    editActive
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  }`}
+                >
+                  {editActive ? 'Active' : 'Disabled'}
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-white/10 bg-[#121216] flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setEditingCoupon(null)}
+                className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditedCoupon}
+                className="px-6 py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 hover:from-fuchsia-500 hover:to-pink-500 text-white font-bold text-sm rounded-xl transition-all shadow-[0_0_20px_rgba(224,0,255,0.4)] cursor-pointer flex items-center gap-2 active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>Save Coupon Changes</span>
               </button>
             </div>
           </div>

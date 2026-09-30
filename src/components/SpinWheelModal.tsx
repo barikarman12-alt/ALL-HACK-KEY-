@@ -44,9 +44,13 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
   const spinConfig = settings.spinWheel || defaultSpinWheelSettings;
   const isFeatureEnabled = spinConfig.isEnabled !== false;
 
-  // Build dynamic slices based on owner configured probabilities
+  // Build dynamic slices based on owner configured probabilities and discount percentages
   const totalP = (spinConfig.prob0 || 50) + (spinConfig.prob10 || 20) + (spinConfig.prob20 || 20) + (spinConfig.prob50 || 10);
   const safeTotal = totalP > 0 ? totalP : 100;
+
+  const d1 = typeof spinConfig.discountSlice1 === 'number' ? spinConfig.discountSlice1 : 10;
+  const d2 = typeof spinConfig.discountSlice2 === 'number' ? spinConfig.discountSlice2 : 20;
+  const d3 = typeof spinConfig.discountSlice3 === 'number' ? spinConfig.discountSlice3 : 50;
 
   const currentSlices: SpinSlice[] = [
     {
@@ -61,33 +65,33 @@ export function SpinWheelModal({ isOpen, onClose, onNavigateToBuyKey }: SpinWhee
     },
     {
       id: 'slice-10',
-      label: '10% OFF',
-      subText: '10% instant discount',
+      label: `${d1}% OFF`,
+      subText: `${d1}% instant discount`,
       prob: (spinConfig.prob10 ?? 20) / safeTotal,
       color: '#4338ca', // Indigo 700
       textColor: '#ffffff',
-      discountPercentage: 10,
-      couponCodePrefix: 'LUCKY10'
+      discountPercentage: d1,
+      couponCodePrefix: `LUCKY${d1}`
     },
     {
       id: 'slice-20',
-      label: '20% OFF',
-      subText: '20% mega discount',
+      label: `${d2}% OFF`,
+      subText: `${d2}% mega discount`,
       prob: (spinConfig.prob20 ?? 20) / safeTotal,
       color: '#065f46', // Emerald 800
       textColor: '#ffffff',
-      discountPercentage: 20,
-      couponCodePrefix: 'LUCKY20'
+      discountPercentage: d2,
+      couponCodePrefix: `LUCKY${d2}`
     },
     {
       id: 'slice-50',
-      label: '50% OFF',
-      subText: '🎉 JACKPOT 50% OFF',
+      label: `${d3}% OFF`,
+      subText: `🎉 JACKPOT ${d3}% OFF`,
       prob: (spinConfig.prob50 ?? 10) / safeTotal,
       color: '#b45309', // Amber 700
       textColor: '#ffffff',
-      discountPercentage: 50,
-      couponCodePrefix: 'JACKPOT50'
+      discountPercentage: d3,
+      couponCodePrefix: `JACKPOT${d3}`
     }
   ];
 

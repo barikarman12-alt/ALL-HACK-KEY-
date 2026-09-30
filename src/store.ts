@@ -159,6 +159,9 @@ export interface SpinWheelSettings {
   prob10: number; // e.g. 20 (20%)
   prob20: number; // e.g. 20 (20%)
   prob50: number; // e.g. 10 (10%)
+  discountSlice1?: number; // e.g. 10 (%)
+  discountSlice2?: number; // e.g. 20 (%)
+  discountSlice3?: number; // e.g. 50 (%) -> Configurable Jackpot discount
   couponExpiryDays: number; // e.g. 3 days
   couponUsageLimit: number; // e.g. 1 usage
   freeSpinsPerKey: number; // e.g. 1
@@ -171,6 +174,9 @@ export const defaultSpinWheelSettings: SpinWheelSettings = {
   prob10: 20,
   prob20: 20,
   prob50: 10,
+  discountSlice1: 10,
+  discountSlice2: 20,
+  discountSlice3: 50,
   couponExpiryDays: 3,
   couponUsageLimit: 1,
   freeSpinsPerKey: 1,
@@ -553,12 +559,8 @@ const syncFAQsToStorage = async () => {
 const syncCouponsToStorage = async () => {
   try {
     localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
-    localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
-    
-    // Always attempt syncing to Firestore appData/coupons and appData/global
     try {
       await setDoc(doc(db, 'appData', 'coupons'), { coupons, updatedAt: new Date().toISOString() }, { merge: true });
-      await setDoc(doc(db, 'appData', 'global'), { inventory, settings, balances, coupons }, { merge: true });
     } catch (e: any) {
       console.warn('Firestore coupons sync notice:', e?.message || e);
     }
@@ -689,8 +691,9 @@ const initializeData = async () => {
     // Handle Coupons
     if (couponsRes.status === 'fulfilled' && couponsRes.value.exists()) {
       const cData = couponsRes.value.data();
-      if (Array.isArray(cData.coupons)) {
-        coupons = mergeCoupons(coupons, cData.coupons);
+      if (Array.isArray(cData.coupons) && cData.coupons.length > 0) {
+        coupons = cData.coupons;
+        localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
       }
     }
 
@@ -699,7 +702,7 @@ const initializeData = async () => {
       const data = globalRes.value.data();
       if (data.inventory) inventory = data.inventory.filter((item: ProductKey) => !item.category.includes('NON-ROOT') && !item.category.includes('ROOT'));
       if (data.settings) {
-        settings = data.settings;
+        settings = { ...defaultSettings, ...data.settings };
         if (settings.categories) {
           settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
         }
@@ -707,8 +710,8 @@ const initializeData = async () => {
       if (data.balances) {
         balances = { ...balances, ...data.balances };
       }
-      if (data.coupons && Array.isArray(data.coupons)) {
-        coupons = mergeCoupons(coupons, data.coupons);
+      if ((!coupons || coupons.length === 0) && data.coupons && Array.isArray(data.coupons) && data.coupons.length > 0) {
+        coupons = data.coupons;
       }
       localStorage.setItem('appDataGlobal', JSON.stringify({ inventory, settings, balances, coupons }));
     }
@@ -827,8 +830,8 @@ const initializeData = async () => {
       onSnapshot(doc(db, 'appData', 'coupons'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.coupons && Array.isArray(data.coupons)) {
-            coupons = mergeCoupons(coupons, data.coupons);
+          if (Array.isArray(data.coupons)) {
+            coupons = data.coupons;
             localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
             store.notify();
           }
@@ -859,10 +862,6 @@ const initializeData = async () => {
             if (settings.categories) {
               settings.categories = settings.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
             }
-          }
-          if (data.coupons && Array.isArray(data.coupons)) {
-            coupons = mergeCoupons(coupons, data.coupons);
-            localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
           }
           if (data.balances) {
             balances = { ...balances, ...data.balances };
@@ -1347,6 +1346,44 @@ export const store = {
 
   deleteCoupon: (id: string) => {
     coupons = coupons.filter(c => c.id !== id);
+    syncCouponsToStorage();
+    syncToStorage();
+    store.notify();
+  },
+
+  quickAdjustCouponDiscount: (id: string, deltaPercent: number) => {
+    coupons = coupons.map(c => {
+      if (c.id === id) {
+        const currentVal = Number(c.discountValue) || 10;
+        const newVal = Math.max(1, Math.min(90, currentVal + deltaPercent));
+        return {
+          ...c,
+          discountValue: newVal,
+          description: c.discountType === 'percentage' 
+            ? `${newVal}% Off on all products` 
+            : c.description
+        };
+      }
+      return c;
+    });
+    syncCouponsToStorage();
+    syncToStorage();
+    store.notify();
+  },
+
+  setCouponDiscountPercent: (id: string, newPercent: number) => {
+    coupons = coupons.map(c => {
+      if (c.id === id) {
+        const val = Math.max(1, Math.min(90, newPercent));
+        return {
+          ...c,
+          discountType: 'percentage',
+          discountValue: val,
+          description: `${val}% Off on all products`
+        };
+      }
+      return c;
+    });
     syncCouponsToStorage();
     syncToStorage();
     store.notify();
@@ -2206,7 +2243,9 @@ export function useCoupons() {
     deleteCoupon: store.deleteCoupon,
     toggleCoupon: store.toggleCoupon,
     validateCoupon: store.validateCoupon,
-    incrementCouponUsage: store.incrementCouponUsage
+    incrementCouponUsage: store.incrementCouponUsage,
+    quickAdjustCouponDiscount: store.quickAdjustCouponDiscount,
+    setCouponDiscountPercent: store.setCouponDiscountPercent
   };
 }
 
