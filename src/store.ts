@@ -187,6 +187,8 @@ export interface ProductSettings {
   categories: ProductCategory[];
   payment?: PaymentGatewaySettings;
   spinWheel?: SpinWheelSettings;
+  faqTelegramLink?: string;
+  requireCustomerPhone?: boolean;
 }
 
 export interface UserProfile {
@@ -375,7 +377,9 @@ const defaultSettings: ProductSettings = {
   rootLogoUrl: '',
   categories: [],
   payment: defaultPaymentSettings,
-  spinWheel: defaultSpinWheelSettings
+  spinWheel: defaultSpinWheelSettings,
+  faqTelegramLink: 'https://t.me/FATHERXSIR',
+  requireCustomerPhone: false
 };
 
 const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettings; balances: Record<string, number> } => {
@@ -400,7 +404,9 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
           spinWheel: {
             ...defaultSpinWheelSettings,
             ...(parsed.settings.spinWheel || {})
-          }
+          },
+          faqTelegramLink: parsed.settings.faqTelegramLink || defaultSettings.faqTelegramLink,
+          requireCustomerPhone: parsed.settings.requireCustomerPhone ?? defaultSettings.requireCustomerPhone
         };
         if (sett.categories && Array.isArray(sett.categories)) {
           sett.categories = sett.categories.filter((c: ProductCategory) => !c.id.includes('NON-ROOT') && !c.id.includes('ROOT'));
@@ -2206,22 +2212,29 @@ export function useCoupons() {
 
 export function useFAQs() {
   const [faqList, setFaqList] = useState<FAQItem[]>(store.getFAQs());
+  const [settingsState, setSettingsState] = useState<ProductSettings>(store.getSettings());
 
   useEffect(() => {
     setFaqList(store.getFAQs());
+    setSettingsState(store.getSettings());
     return store.subscribe(() => {
       setFaqList([...store.getFAQs()]);
+      setSettingsState({ ...store.getSettings() });
     });
   }, []);
 
   return {
     faqs: faqList,
     activeFaqs: faqList.filter(f => f.isActive).sort((a, b) => (a.order || 0) - (b.order || 0)),
+    faqTelegramLink: settingsState.faqTelegramLink || 'https://t.me/FATHERXSIR',
     addFAQ: store.addFAQ,
     updateFAQ: store.updateFAQ,
     deleteFAQ: store.deleteFAQ,
     toggleFAQ: store.toggleFAQ,
-    resetDefaultFAQs: store.resetDefaultFAQs
+    resetDefaultFAQs: store.resetDefaultFAQs,
+    updateFaqTelegramLink: (link: string) => {
+      store.updateSettings({ faqTelegramLink: link });
+    }
   };
 }
 

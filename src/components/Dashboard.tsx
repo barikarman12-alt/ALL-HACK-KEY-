@@ -60,7 +60,8 @@ import {
   ArrowUp,
   ArrowDown,
   Layers,
-  MessageSquareQuote
+  MessageSquareQuote,
+  Send
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
@@ -365,6 +366,25 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
   const [deleteFaqConfirmId, setDeleteFaqConfirmId] = useState<string | null>(null);
   const [resetFaqConfirm, setResetFaqConfirm] = useState(false);
   const [expandedFaqCardId, setExpandedFaqCardId] = useState<string | null>(null);
+
+  // Telegram Channel / Bot Link in FAQ tab
+  const [draftFaqTelegramLink, setDraftFaqTelegramLink] = useState(
+    settings.faqTelegramLink || 'https://t.me/FATHERXSIR'
+  );
+  const [faqTelegramSavedMsg, setFaqTelegramSavedMsg] = useState('');
+
+  useEffect(() => {
+    if (settings.faqTelegramLink) {
+      setDraftFaqTelegramLink(settings.faqTelegramLink);
+    }
+  }, [settings.faqTelegramLink]);
+
+  const handleSaveFaqTelegramLink = () => {
+    const link = draftFaqTelegramLink.trim() || 'https://t.me/FATHERXSIR';
+    updateSettings({ faqTelegramLink: link });
+    setFaqTelegramSavedMsg('✅ Telegram link saved! Homepage FAQ section will now direct customers to this link.');
+    setTimeout(() => setFaqTelegramSavedMsg(''), 4000);
+  };
 
   const handleOpenAddFaq = () => {
     setEditingFaq(null);
@@ -5604,6 +5624,83 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                 <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                   <span>{faqSuccessMsg}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Telegram Community & FAQ Channel Configuration Box */}
+            <div className="bg-gradient-to-r from-sky-950/30 via-[#121215] to-[#121215] rounded-3xl border border-sky-500/30 p-6 sm:p-7 shadow-[0_4px_25px_rgba(14,165,233,0.12)] backdrop-blur-xl theme-card space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-3 border-b border-white/10 theme-modal-section">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-[0_0_15px_rgba(14,165,233,0.25)]">
+                    <Send className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base sm:text-lg font-bold text-white flex items-center gap-2 theme-text-title">
+                      <span>Telegram Channel & Bot Community Link</span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/30">
+                        Live on FAQ Section
+                      </span>
+                    </h3>
+                    <p className="text-xs text-zinc-400 theme-text-sub">
+                      Customer FAQ section aur Help banner par display hone wala official Telegram link configure karein.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftFaqTelegramLink('https://t.me/FATHERXSIR');
+                    }}
+                    className="px-3 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-sky-300 hover:text-white border border-sky-500/20 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    Preset: t.me/FATHERXSIR
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 pt-1">
+                <div className="relative flex-1">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-sky-400">
+                    <Send className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    value={draftFaqTelegramLink}
+                    onChange={(e) => setDraftFaqTelegramLink(e.target.value)}
+                    placeholder="e.g. https://t.me/FATHERXSIR or t.me/FATHERXSIR"
+                    className="w-full bg-[#16161c] border border-sky-500/30 rounded-xl pl-10 pr-4 py-3 text-xs sm:text-sm font-mono text-white placeholder-zinc-500 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/30 transition-all theme-input"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <a
+                    href={draftFaqTelegramLink.startsWith('http') ? draftFaqTelegramLink : `https://${draftFaqTelegramLink}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5 cursor-pointer border border-white/10"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Test Link</span>
+                  </a>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveFaqTelegramLink}
+                    className="px-6 py-3 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-[0_0_20px_rgba(14,165,233,0.35)] flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <Check className="w-4 h-4" />
+                    <span>Save Telegram Link</span>
+                  </button>
+                </div>
+              </div>
+
+              {faqTelegramSavedMsg && (
+                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{faqTelegramSavedMsg}</span>
                 </div>
               )}
             </div>

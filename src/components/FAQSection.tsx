@@ -10,7 +10,9 @@ import {
   Settings, 
   Key, 
   Wallet, 
-  CreditCard 
+  CreditCard,
+  Send,
+  ExternalLink
 } from 'lucide-react';
 import { useFAQs, FAQItem } from '../store';
 import { useAuth } from '../lib/useAuth';
@@ -20,11 +22,24 @@ interface FAQSectionProps {
 }
 
 export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
-  const { activeFaqs } = useFAQs();
+  const { activeFaqs, faqTelegramLink } = useFAQs();
   const { currentUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [openFaqId, setOpenFaqId] = useState<string | null>(null);
+
+  const telegramUrl = useMemo(() => {
+    const raw = (faqTelegramLink || 'https://t.me/FATHERXSIR').trim();
+    if (raw.startsWith('http://') || raw.startsWith('https://')) return raw;
+    if (raw.startsWith('t.me/')) return `https://${raw}`;
+    if (raw.startsWith('@')) return `https://t.me/${raw.substring(1)}`;
+    return `https://t.me/${raw}`;
+  }, [faqTelegramLink]);
+
+  const telegramHandle = useMemo(() => {
+    const raw = (faqTelegramLink || 't.me/FATHERXSIR').trim();
+    return raw.replace(/^https?:\/\/(www\.)?t\.me\//, '').replace(/^t\.me\//, '').replace(/^@/, '');
+  }, [faqTelegramLink]);
 
   const isOwner = Boolean(
     currentUser?.email === 'barikarman12@gmail.com' ||
@@ -71,23 +86,23 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
   return (
     <section id="faq" className="py-20 relative overflow-hidden transition-colors duration-300">
       {/* Ambient background glow */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-tr from-indigo-600/10 via-purple-600/10 to-amber-500/5 blur-[120px] rounded-full pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-gradient-to-tr from-sky-600/10 via-purple-600/10 to-amber-500/5 blur-[120px] rounded-full pointer-events-none" />
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         
         {/* Section Header */}
-        <div className="text-center max-w-3xl mx-auto mb-12">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-bold uppercase tracking-wider mb-4 shadow-[0_0_15px_rgba(99,102,241,0.2)]">
-            <HelpCircle className="w-4 h-4 text-indigo-400" />
-            <span>Customer Help & FAQ</span>
+        <div className="text-center max-w-3xl mx-auto mb-10">
+          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs font-bold uppercase tracking-wider mb-4 shadow-[0_0_15px_rgba(14,165,233,0.2)]">
+            <HelpCircle className="w-4 h-4 text-sky-400" />
+            <span>Customer Help & Telegram FAQ Hub</span>
           </div>
 
           <h2 className="text-3xl sm:text-4xl lg:text-5xl font-display font-extrabold text-white tracking-tight theme-text-title">
-            Frequently Asked <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">Questions</span>
+            Frequently Asked <span className="bg-gradient-to-r from-sky-400 via-indigo-400 to-pink-400 bg-clip-text text-transparent">Questions</span>
           </h2>
 
           <p className="mt-4 text-sm sm:text-base text-zinc-400 max-w-2xl mx-auto theme-text-sub">
-            Payment, Key Delivery, Device Compatibility aur Wallet se jude aam sawalon ke turant jawab yahan paayein.
+            Payment, Key Delivery, Device Compatibility aur VIP updates se jude sawalon ke jawab. Live support ke liye Telegram join karein.
           </p>
 
           {/* Admin shortcut if logged in as Owner */}
@@ -98,10 +113,45 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                 className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-bold rounded-full transition-all cursor-pointer shadow-[0_0_12px_rgba(245,158,11,0.2)] active:scale-95"
               >
                 <Settings className="w-3.5 h-3.5 text-amber-400" />
-                <span>Admin: Manage Questions & Answers</span>
+                <span>Admin: Manage Questions & Telegram Link</span>
               </button>
             </div>
           )}
+        </div>
+
+        {/* Prominent Official Telegram Channel & Community Card */}
+        <div className="mb-10 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-sky-950/40 via-[#12141c] to-[#121215] border border-sky-500/30 shadow-[0_0_30px_rgba(14,165,233,0.15)] flex flex-col sm:flex-row items-center justify-between gap-5 theme-card relative overflow-hidden">
+          <div className="absolute right-0 top-0 w-48 h-48 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="flex items-center gap-4 text-center sm:text-left flex-col sm:flex-row relative z-10">
+            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-sky-500/15 border border-sky-400/30 flex items-center justify-center text-sky-400 shadow-[0_0_20px_rgba(14,165,233,0.3)] shrink-0">
+              <Send className="w-6 h-6 sm:w-7 sm:h-7" />
+            </div>
+            <div>
+              <div className="flex items-center justify-center sm:justify-start gap-2 flex-wrap mb-0.5">
+                <h3 className="text-base sm:text-lg font-bold text-white theme-text-title flex items-center gap-1.5">
+                  <span>Official Telegram Channel & FAQ Community</span>
+                </h3>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-400/30 shadow-[0_0_10px_rgba(14,165,233,0.2)]">
+                  VIP Support
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-zinc-300 theme-text-sub">
+                Latest loader APKs, bypass updates, gift keys aur 24/7 help ke liye humein Telegram par follow karein:{' '}
+                <span className="text-sky-400 font-mono font-bold tracking-tight">t.me/{telegramHandle}</span>
+              </p>
+            </div>
+          </div>
+
+          <a
+            href={telegramUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs sm:text-sm shadow-[0_0_25px_rgba(14,165,233,0.45)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0 relative z-10"
+          >
+            <Send className="w-4 h-4" />
+            <span>Join Telegram Channel</span>
+          </a>
         </div>
 
         {/* Search Bar & Category Filters */}
@@ -114,7 +164,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search your question (e.g., delivery, payment, key, root)..."
-              className="w-full bg-[#121215]/90 border border-white/10 hover:border-indigo-500/40 focus:border-indigo-500 rounded-2xl pl-11 pr-10 py-3 text-xs sm:text-sm text-white placeholder-zinc-500 shadow-[0_4px_20px_rgba(0,0,0,0.4)] focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all theme-card"
+              className="w-full bg-[#121215]/90 border border-white/10 hover:border-sky-500/40 focus:border-sky-500 rounded-2xl pl-11 pr-10 py-3 text-xs sm:text-sm text-white placeholder-zinc-500 shadow-[0_4px_20px_rgba(0,0,0,0.4)] focus:outline-none focus:ring-1 focus:ring-sky-500 transition-all theme-card"
             />
             {searchQuery && (
               <button
@@ -133,7 +183,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                 onClick={() => setSelectedCategory('all')}
                 className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                   selectedCategory === 'all'
-                    ? 'bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] border border-indigo-400'
+                    ? 'bg-sky-600 text-white shadow-[0_0_15px_rgba(14,165,233,0.4)] border border-sky-400'
                     : 'bg-[#141418] text-zinc-400 hover:text-white hover:bg-zinc-800 border border-white/5'
                 }`}
               >
@@ -148,7 +198,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                     onClick={() => setSelectedCategory(cat)}
                     className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-600 text-white shadow-[0_0_15px_rgba(99,102,241,0.4)] border border-indigo-400'
+                        ? 'bg-sky-600 text-white shadow-[0_0_15px_rgba(14,165,233,0.4)] border border-sky-400'
                         : 'bg-[#141418] text-zinc-400 hover:text-white hover:bg-zinc-800 border border-white/5'
                     }`}
                   >
@@ -168,15 +218,26 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
             <div className="text-center py-16 px-4 rounded-3xl bg-[#121215]/80 border border-white/10 backdrop-blur-xl theme-card">
               <HelpCircle className="w-12 h-12 text-zinc-600 mx-auto mb-3 opacity-40" />
               <h4 className="text-base font-bold text-white mb-1">No matching questions found</h4>
-              <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-                Aapke search query &quot;{searchQuery}&quot; se milta julta koi question nahi mila. Direct help ke liye WhatsApp support par message karein.
+              <p className="text-xs text-zinc-400 max-w-sm mx-auto mb-4">
+                Aapke search query &quot;{searchQuery}&quot; se milta julta koi question nahi mila. Direct query ke liye Telegram channel par message karein.
               </p>
-              <button
-                onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}
-                className="mt-4 px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/30 border border-indigo-500/40 text-indigo-300 text-xs font-bold rounded-xl transition-all"
-              >
-                Show All FAQs
-              </button>
+              <div className="flex items-center justify-center gap-3 flex-wrap">
+                <button
+                  onClick={() => { setSearchQuery(''); setSelectedCategory('all'); }}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 border border-white/10 text-zinc-200 text-xs font-bold rounded-xl transition-all"
+                >
+                  Show All FAQs
+                </button>
+                <a
+                  href={telegramUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-xl transition-all inline-flex items-center gap-1.5 shadow-[0_0_15px_rgba(14,165,233,0.3)]"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Ask on Telegram</span>
+                </a>
+              </div>
             </div>
           ) : (
             filteredFaqs.map((faq, index) => {
@@ -186,7 +247,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                   key={faq.id}
                   className={`rounded-2xl border transition-all duration-200 overflow-hidden theme-card ${
                     isOpen 
-                      ? 'bg-[#14151b] border-indigo-500/50 shadow-[0_0_25px_rgba(99,102,241,0.18)]' 
+                      ? 'bg-[#14151b] border-sky-500/50 shadow-[0_0_25px_rgba(14,165,233,0.18)]' 
                       : 'bg-[#121215]/90 border-white/10 hover:border-white/20'
                   }`}
                 >
@@ -198,7 +259,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                     <div className="flex items-start sm:items-center gap-3.5 min-w-0">
                       <span className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-mono font-bold shrink-0 mt-0.5 sm:mt-0 transition-colors ${
                         isOpen 
-                          ? 'bg-indigo-500 text-white shadow-[0_0_10px_rgba(99,102,241,0.5)]' 
+                          ? 'bg-sky-500 text-white shadow-[0_0_10px_rgba(14,165,233,0.5)]' 
                           : 'bg-zinc-800/80 text-zinc-400'
                       }`}>
                         {index + 1}
@@ -206,7 +267,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                       <div className="min-w-0">
                         {faq.category && (
                           <div className="flex items-center gap-1.5 mb-1">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-sky-300 bg-sky-500/10 px-2 py-0.5 rounded-full border border-sky-500/20">
                               {getCategoryIcon(faq.category)}
                               <span>{faq.category}</span>
                             </span>
@@ -219,7 +280,7 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                     </div>
 
                     <div className={`p-1.5 rounded-xl transition-all shrink-0 ${
-                      isOpen ? 'bg-indigo-500/20 text-indigo-300 rotate-180' : 'text-zinc-400 bg-white/5'
+                      isOpen ? 'bg-sky-500/20 text-sky-300 rotate-180' : 'text-zinc-400 bg-white/5'
                     }`}>
                       <ChevronDown className="w-4 h-4 transition-transform duration-200" />
                     </div>
@@ -235,9 +296,15 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
                           <ShieldCheck className="w-3.5 h-3.5" />
                           <span>Verified Store Policy</span>
                         </span>
-                        <span className="text-zinc-500 font-mono">
-                          Arman X Store Instant System
-                        </span>
+                        <a
+                          href={telegramUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-sky-400 hover:underline flex items-center gap-1 font-mono"
+                        >
+                          <Send className="w-3 h-3" />
+                          <span>t.me/{telegramHandle}</span>
+                        </a>
                       </div>
                     </div>
                   )}
@@ -248,33 +315,35 @@ export const FAQSection: React.FC<FAQSectionProps> = ({ onManageFAQs }) => {
         </div>
 
         {/* Bottom Support CTA Box */}
-        <div className="mt-12 p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-indigo-950/40 via-purple-950/30 to-[#121215] border border-indigo-500/30 shadow-[0_4px_30px_rgba(0,0,0,0.5)] flex flex-col sm:flex-row items-center justify-between gap-6 theme-card">
+        <div className="mt-12 p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-sky-950/40 via-indigo-950/30 to-[#121215] border border-sky-500/30 shadow-[0_4px_30px_rgba(0,0,0,0.5)] flex flex-col sm:flex-row items-center justify-between gap-6 theme-card">
           <div className="flex items-center gap-4 text-center sm:text-left flex-col sm:flex-row">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.2)] shrink-0">
-              <MessageCircle className="w-7 h-7" />
+            <div className="w-14 h-14 rounded-2xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 shadow-[0_0_20px_rgba(14,165,233,0.25)] shrink-0">
+              <Send className="w-7 h-7" />
             </div>
             <div>
               <h4 className="text-lg font-bold text-white flex items-center justify-center sm:justify-start gap-2 theme-text-title">
                 <span>Koi aur sawal ya dikkat hai?</span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
-                  24/7 Live
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/30">
+                  Telegram 24/7
                 </span>
               </h4>
               <p className="text-xs sm:text-sm text-zinc-400 mt-1 theme-text-sub">
-                Hamari support team se WhatsApp par seedha chat karein aur turant assistance paayein.
+                Hamare official Telegram channel <span className="text-sky-400 font-bold font-mono">@{telegramHandle}</span> par join karein aur direct VIP assistance paayein.
               </p>
             </div>
           </div>
 
-          <a
-            href={`https://wa.me/917903102377?text=${encodeURIComponent('Hello Arman Bhai, mujhe Arman X Store se related help chahiye.')}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-sm shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 shrink-0"
-          >
-            <MessageCircle className="w-4 h-4" />
-            <span>Chat on WhatsApp</span>
-          </a>
+          <div className="flex items-center gap-3 w-full sm:w-auto shrink-0">
+            <a
+              href={telegramUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full sm:w-auto px-6 py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-sm shadow-[0_0_25px_rgba(14,165,233,0.4)] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+            >
+              <Send className="w-4 h-4" />
+              <span>Join on Telegram (@{telegramHandle})</span>
+            </a>
+          </div>
         </div>
 
       </div>
