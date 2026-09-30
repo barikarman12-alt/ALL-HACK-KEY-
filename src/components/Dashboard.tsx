@@ -51,22 +51,76 @@ import {
   HelpCircle,
   Cpu,
   Gift,
-  Dices
+  Dices,
+  Phone,
+  MessageCircle,
+  User,
+  Edit3,
+  RotateCcw,
+  ArrowUp,
+  ArrowDown,
+  Layers,
+  MessageSquareQuote
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
+import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
 import { testFamApiKeyConnection, verifyFamGatewayOrder, DEFAULT_FAM_API_KEY } from '../lib/famPay';
 
-export function Dashboard() {
-  const [activeTab, setActiveTab] = useState('menu');
+export interface DashboardProps {
+  initialTab?: string;
+  onNavigateHome?: () => void;
+}
+
+export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
+  const [activeTab, setActiveTab] = useState(() => {
+    if (initialTab) return initialTab;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get('tab');
+      if (tab) return tab;
+    } catch {}
+    return 'menu';
+  });
+
+  const handleSelectTab = (tab: string) => {
+    setActiveTab(tab);
+    try {
+      const url = new URL(window.location.href);
+      if (tab === 'menu') {
+        url.searchParams.delete('tab');
+      } else {
+        url.searchParams.set('tab', tab);
+      }
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
+  };
   const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, updateSpinWheelSettings, purchases, balances, addProduct, deleteProduct } = useInventory();
   const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon } = useCoupons();
-  const { users, updateUserBalance, issueRefund } = useUsers();
+  const { faqs, addFAQ, updateFAQ, deleteFAQ, toggleFAQ, resetDefaultFAQs } = useFAQs();
+  const { users, refreshUsers, updateUserBalance, issueRefund } = useUsers();
   const { allTransactions: allWalletTransactions } = useWalletTransactions();
   const { allPendingOrders, updatePendingOrderStatus } = usePendingOrders();
   const [newKeysInput, setNewKeysInput] = useState<{ [key: string]: string }>({});
   const [manageKeysProduct, setManageKeysProduct] = useState<string | null>(null);
   const [deleteKeyConfirmIdx, setDeleteKeyConfirmIdx] = useState<number | null>(null);
+
+  // User Sync & Refresh State
+  const [isRefreshingUsers, setIsRefreshingUsers] = useState(false);
+  const [refreshUsersMsg, setRefreshUsersMsg] = useState('');
+
+  const handleRefreshUsers = async () => {
+    setIsRefreshingUsers(true);
+    setRefreshUsersMsg('');
+    try {
+      const list = await refreshUsers();
+      setRefreshUsersMsg(`✅ Live synced ${list.length} user accounts from database!`);
+    } catch {
+      setRefreshUsersMsg('Users synced.');
+    } finally {
+      setIsRefreshingUsers(false);
+      setTimeout(() => setRefreshUsersMsg(''), 4500);
+    }
+  };
 
   // Live QR & Order Tracker States
   const [verifyingOrderId, setVerifyingOrderId] = useState<string | null>(null);
@@ -283,7 +337,7 @@ export function Dashboard() {
 
   // User Management & Details States
   const [userSearchQuery, setUserSearchQuery] = useState('');
-  const [userFilter, setUserFilter] = useState<'all' | 'buyers' | 'leads' | 'balance' | 'vip'>('all');
+  const [userFilter, setUserFilter] = useState<'all' | 'buyers' | 'phone' | 'leads' | 'balance' | 'vip'>('all');
   const [userSortBy, setUserSortBy] = useState<'recent' | 'spent' | 'orders' | 'balance' | 'name'>('recent');
   const [selectedUserDetail, setSelectedUserDetail] = useState<UserWithStats | null>(null);
   const [userModalTab, setUserModalTab] = useState<'deposits' | 'orders'>('deposits');
@@ -293,6 +347,133 @@ export function Dashboard() {
   const [balanceNote, setBalanceNote] = useState('');
   const [balanceSuccessMsg, setBalanceSuccessMsg] = useState('');
   const [copiedText, setCopiedText] = useState<string | null>(null);
+
+  // FAQ Management States & Handlers
+  const [faqSearchQuery, setFaqSearchQuery] = useState('');
+  const [faqCategoryFilter, setFaqCategoryFilter] = useState('all');
+  const [faqStatusFilter, setFaqStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [isFaqModalOpen, setIsFaqModalOpen] = useState(false);
+  const [editingFaq, setEditingFaq] = useState<FAQItem | null>(null);
+  const [faqFormQuestion, setFaqFormQuestion] = useState('');
+  const [faqFormAnswer, setFaqFormAnswer] = useState('');
+  const [faqFormCategory, setFaqFormCategory] = useState('Purchases & Delivery');
+  const [faqFormCustomCategory, setFaqFormCustomCategory] = useState('');
+  const [faqFormOrder, setFaqFormOrder] = useState('1');
+  const [faqFormActive, setFaqFormActive] = useState(true);
+  const [faqFormError, setFaqFormError] = useState('');
+  const [faqSuccessMsg, setFaqSuccessMsg] = useState('');
+  const [deleteFaqConfirmId, setDeleteFaqConfirmId] = useState<string | null>(null);
+  const [resetFaqConfirm, setResetFaqConfirm] = useState(false);
+  const [expandedFaqCardId, setExpandedFaqCardId] = useState<string | null>(null);
+
+  const handleOpenAddFaq = () => {
+    setEditingFaq(null);
+    setFaqFormQuestion('');
+    setFaqFormAnswer('');
+    setFaqFormCategory('Purchases & Delivery');
+    setFaqFormCustomCategory('');
+    setFaqFormOrder((faqs.length + 1).toString());
+    setFaqFormActive(true);
+    setFaqFormError('');
+    setIsFaqModalOpen(true);
+  };
+
+  const handleOpenEditFaq = (faq: FAQItem) => {
+    setEditingFaq(faq);
+    setFaqFormQuestion(faq.question);
+    setFaqFormAnswer(faq.answer);
+    const standardCategories = ['Purchases & Delivery', 'Payment & UPI', 'Activation & Keys', 'Wallet & Balance', 'Support & Help', 'Coupons & Rewards'];
+    if (standardCategories.includes(faq.category)) {
+      setFaqFormCategory(faq.category);
+      setFaqFormCustomCategory('');
+    } else {
+      setFaqFormCategory('Custom');
+      setFaqFormCustomCategory(faq.category || '');
+    }
+    setFaqFormOrder((faq.order || 1).toString());
+    setFaqFormActive(faq.isActive);
+    setFaqFormError('');
+    setIsFaqModalOpen(true);
+  };
+
+  const handleSaveFaq = () => {
+    setFaqFormError('');
+    if (!faqFormQuestion.trim()) {
+      setFaqFormError('Question cannot be empty.');
+      return;
+    }
+    if (!faqFormAnswer.trim()) {
+      setFaqFormError('Answer cannot be empty.');
+      return;
+    }
+
+    const finalCategory = faqFormCategory === 'Custom' 
+      ? (faqFormCustomCategory.trim() || 'General') 
+      : faqFormCategory;
+
+    const finalOrder = parseInt(faqFormOrder) || 1;
+
+    if (editingFaq) {
+      updateFAQ(editingFaq.id, {
+        question: faqFormQuestion.trim(),
+        answer: faqFormAnswer.trim(),
+        category: finalCategory,
+        order: finalOrder,
+        isActive: faqFormActive
+      });
+      setFaqSuccessMsg('FAQ question updated successfully!');
+    } else {
+      addFAQ({
+        question: faqFormQuestion.trim(),
+        answer: faqFormAnswer.trim(),
+        category: finalCategory,
+        order: finalOrder,
+        isActive: faqFormActive
+      });
+      setFaqSuccessMsg('New FAQ question added to Homepage!');
+    }
+
+    setIsFaqModalOpen(false);
+    setTimeout(() => setFaqSuccessMsg(''), 4000);
+  };
+
+  const handleMoveFaqOrder = (faq: FAQItem, direction: 'up' | 'down') => {
+    const sorted = [...faqs].sort((a, b) => (a.order || 0) - (b.order || 0));
+    const idx = sorted.findIndex(f => f.id === faq.id);
+    if (idx < 0) return;
+    if (direction === 'up' && idx > 0) {
+      const prev = sorted[idx - 1];
+      const curOrder = faq.order || (idx + 1);
+      const prevOrder = prev.order || idx;
+      updateFAQ(faq.id, { order: prevOrder });
+      updateFAQ(prev.id, { order: curOrder });
+    } else if (direction === 'down' && idx < sorted.length - 1) {
+      const next = sorted[idx + 1];
+      const curOrder = faq.order || (idx + 1);
+      const nextOrder = next.order || (idx + 2);
+      updateFAQ(faq.id, { order: nextOrder });
+      updateFAQ(next.id, { order: curOrder });
+    }
+  };
+
+  const handleAddPresetFaq = (preset: { question: string; answer: string; category: string }) => {
+    addFAQ({
+      question: preset.question,
+      answer: preset.answer,
+      category: preset.category,
+      order: faqs.length + 1,
+      isActive: true
+    });
+    setFaqSuccessMsg(`Added FAQ template: "${preset.question.slice(0, 32)}..."`);
+    setTimeout(() => setFaqSuccessMsg(''), 3000);
+  };
+
+  const handleResetFaqs = () => {
+    resetDefaultFAQs();
+    setResetFaqConfirm(false);
+    setFaqSuccessMsg('Standard FAQ questions restored to defaults!');
+    setTimeout(() => setFaqSuccessMsg(''), 3500);
+  };
 
   // CSV Export States & Handlers
   const [csvExportSuccessMsg, setCsvExportSuccessMsg] = useState('');
@@ -414,13 +595,14 @@ export function Dashboard() {
 
     const headers = [
       'User Email',
+      'Customer Name',
+      'Customer Phone / WhatsApp',
       'Purchase Date',
       'Product Name',
       'Payment Amount',
       'Currency',
       'Transaction ID',
       'Transaction Type',
-      'Customer Name',
       'User UID',
       'Category / Plan',
       'Quantity',
@@ -447,13 +629,14 @@ export function Dashboard() {
         date: timestamp,
         row: [
           p.userEmail || user?.email || (p.userId === 'anonymous' ? 'guest@store.local' : 'N/A'),
+          p.customerName || user?.displayName || user?.customId || 'Customer',
+          p.customerPhone || user?.phone || '',
           formatCsvDate(p.date),
           `${productName} - ${p.label}`,
           calculatedAmount,
           'INR',
           p.id,
           'Key Purchase Order',
-          user?.displayName || user?.customId || 'Customer',
           p.userId || 'anonymous',
           p.category,
           p.keys.length,
@@ -493,13 +676,14 @@ export function Dashboard() {
         date: timestamp,
         row: [
           t.userEmail || user?.email || 'N/A',
+          user?.displayName || user?.customId || 'Customer',
+          user?.phone || '',
           formatCsvDate(t.date),
           prodName,
           t.amount,
           'INR',
           t.id,
           typeLabel,
-          user?.displayName || user?.customId || 'Customer',
           t.userId,
           t.type,
           1,
@@ -529,12 +713,13 @@ export function Dashboard() {
 
     const headers = [
       'User Email',
+      'Customer Name',
+      'Customer Phone / WhatsApp',
       'Purchase Date',
       'Product Name',
       'Payment Amount',
       'Currency',
       'Order ID',
-      'Customer Name',
       'User UID',
       'Plan / Duration',
       'Quantity',
@@ -552,12 +737,13 @@ export function Dashboard() {
 
       return [
         p.userEmail || user?.email || (p.userId === 'anonymous' ? 'guest@store.local' : 'N/A'),
+        p.customerName || user?.displayName || user?.customId || 'Customer',
+        p.customerPhone || user?.phone || '',
         formatCsvDate(p.date),
         `${productName} - ${p.label}`,
         calculatedAmount,
         'INR',
         p.id,
-        user?.displayName || user?.customId || 'Customer',
         p.userId || 'anonymous',
         p.label,
         p.keys.length,
@@ -638,12 +824,14 @@ export function Dashboard() {
     const headers = [
       'User Email',
       'Customer Name',
+      'Customer Phone / WhatsApp',
       'User UID',
       'Account Role',
       'Current Wallet Balance',
       'Total Orders Placed',
       'Total Amount Spent',
       'Total Keys Purchased',
+      'Last Delivered Keys',
       'Currency',
       'Joined Date',
       'Last Login Date'
@@ -652,12 +840,14 @@ export function Dashboard() {
     const rows = users.map((u) => [
       u.email || 'N/A',
       u.displayName || u.customId || 'User',
+      u.phone || '',
       u.uid,
       u.role || 'customer',
       u.balance || 0,
       u.totalOrders || 0,
       u.totalSpent || 0,
       u.totalKeys || 0,
+      (u.lastKeys || []).join(' ; '),
       'INR',
       formatCsvDate(u.createdAt) || formatUserDate(u.createdAt),
       formatCsvDate(u.lastLoginAt) || formatUserDate(u.lastLoginAt)
@@ -900,15 +1090,16 @@ export function Dashboard() {
   const outOfStockItems = inventory.filter(item => item.stock === 0);
 
   const stats = [
-    { name: 'Total Revenue', value: `₹${totalRevenue.toLocaleString()}`, change: '+100%', trend: 'up', icon: DollarSign },
-    { name: 'Active Customers', value: activeCustomers.toString(), change: 'All time', trend: 'up', icon: Users },
-    { name: 'Total Keys Sold', value: totalKeysSold.toString(), change: 'All time', trend: 'up', icon: ShoppingCart },
+    { name: 'Total Revenue', value: `₹${totalRevenue.toLocaleString()}`, change: '+100%', trend: 'up', icon: DollarSign, tab: 'overview' },
+    { name: 'Registered Users', value: users.length.toString(), change: `${users.filter(u => u.totalOrders > 0).length} buyers • ${users.filter(u => !!u.phone).length} phone`, trend: 'up', icon: Users, tab: 'customers' },
+    { name: 'Total Keys Sold', value: totalKeysSold.toString(), change: 'All time', trend: 'up', icon: ShoppingCart, tab: 'orders' },
     { 
       name: 'Stock Alerts', 
       value: outOfStockItems.length.toString(), 
       change: outOfStockItems.length > 0 ? `${outOfStockItems.length} items empty` : 'All stocked', 
       trend: outOfStockItems.length > 0 ? 'down' : 'up', 
-      icon: Package 
+      icon: Package,
+      tab: 'inventory'
     },
   ];
 
@@ -1076,13 +1267,20 @@ export function Dashboard() {
               Owner Dashboard
             </h1>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {['Overview', 'Inventory', 'Orders', 'Coupons', 'Spin Wheel', 'Payment Gateway', 'Customers', 'Analytics', 'Settings'].map((tab) => (
+              {['Overview', 'Inventory', 'Orders', 'Coupons', 'Spin Wheel', 'Payment Gateway', 'FAQs', 'Customers', 'Analytics', 'Settings'].map((tab) => (
                 <button
                   key={tab}
-                  onClick={() => setActiveTab(tab.toLowerCase().replace(' ', '-'))}
+                  onClick={() => handleSelectTab(tab.toLowerCase().replace(' ', '-'))}
                   className="p-8 bg-[#121215]/90 border border-white/10 rounded-2xl text-left hover:border-indigo-500/50 hover:bg-[#18181f] transition-all shadow-[0_4px_20px_rgba(0,0,0,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.2)] flex justify-between items-center group cursor-pointer backdrop-blur-xl theme-card"
                 >
-                  <span className="text-xl font-bold text-white theme-text-title">{tab}</span>
+                  <div className="flex items-center gap-3">
+                    {tab === 'FAQs' && (
+                      <div className="w-8 h-8 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 group-hover:bg-indigo-500/20">
+                        <HelpCircle className="w-4 h-4" />
+                      </div>
+                    )}
+                    <span className="text-xl font-bold text-white theme-text-title">{tab}</span>
+                  </div>
                   <ArrowRight className="w-6 h-6 text-zinc-500 group-hover:text-indigo-400 transition-colors transform group-hover:translate-x-1" />
                 </button>
               ))}
@@ -1092,13 +1290,13 @@ export function Dashboard() {
           <div>
             <div className="flex items-center mb-8">
               <button
-                onClick={() => setActiveTab('menu')}
+                onClick={() => handleSelectTab('menu')}
                 className="mr-4 p-2 bg-zinc-900/80 border border-white/10 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer theme-pill"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <h1 className="text-3xl font-display font-bold text-white theme-text-title">
-                {activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
+                {activeTab === 'faqs' || activeTab === 'faq' ? 'Frequently Asked Questions (FAQ)' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
               </h1>
             </div>
 
@@ -1133,7 +1331,11 @@ export function Dashboard() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {stats.map((stat, index) => (
-                <div key={index} className="bg-[#121215]/90 border border-white/10 hover:border-indigo-500/40 p-6 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] relative overflow-hidden group transition-all backdrop-blur-xl theme-card">
+                <div 
+                  key={index} 
+                  onClick={() => stat.tab && setActiveTab(stat.tab)}
+                  className="bg-[#121215]/90 border border-white/10 hover:border-indigo-500/40 p-6 rounded-2xl shadow-[0_4px_20px_rgba(0,0,0,0.3)] hover:shadow-[0_0_20px_rgba(99,102,241,0.15)] relative overflow-hidden group transition-all backdrop-blur-xl theme-card cursor-pointer"
+                >
                   <div className="absolute top-0 right-0 p-6 opacity-10 group-hover:opacity-20 transition-opacity">
                     <stat.icon className="w-16 h-16 text-indigo-500 -mt-4 -mr-4 transform rotate-12" />
                   </div>
@@ -1186,10 +1388,10 @@ export function Dashboard() {
                       <tr>
                         <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Order ID</th>
                         <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Timestamp</th>
-                        <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">User Email</th>
+                        <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Customer & WhatsApp</th>
                         <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10 text-right">Amount (₹)</th>
                         <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10 text-center">Payment Status</th>
-                        <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Product / Details</th>
+                        <th className="py-3 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-white/10">Product & Keys</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5">
@@ -1197,6 +1399,8 @@ export function Dashboard() {
                         const invItem = inventory.find(i => i.value === order.value);
                         const orderAmt = order.amount ?? (invItem?.price ? invItem.price * order.keys.length : 0);
                         const user = users.find(u => u.uid === order.userId || (order.userEmail && u.email === order.userEmail));
+                        const custName = order.customerName || user?.displayName || (order.userEmail ? order.userEmail.split('@')[0] : 'Customer');
+                        const custPhone = order.customerPhone || user?.phone;
                         
                         return (
                           <tr key={order.id} className="hover:bg-white/[0.03] transition-colors">
@@ -1228,13 +1432,29 @@ export function Dashboard() {
                               </div>
                             </td>
 
-                            {/* User Email */}
+                            {/* Customer & WhatsApp */}
                             <td className="py-3.5 px-5 text-xs text-zinc-300">
-                              <div className="font-medium text-white truncate max-w-[170px]">
-                                {order.userEmail || user?.email || (order.userId === 'anonymous' ? 'Guest Customer' : order.userId)}
+                              <div className="font-bold text-white truncate max-w-[180px] flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                <span>{custName}</span>
                               </div>
-                              <div className="text-[10px] text-zinc-500 font-mono">
-                                UID: {order.userId?.slice(0, 10)}...
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {custPhone ? (
+                                  <a
+                                    href={`https://wa.me/91${custPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${custName}, aapka Arman X Store order #${order.id} verified hai.`)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+                                    title="Click to chat with customer on WhatsApp"
+                                  >
+                                    <MessageCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                                    <span>+91 {custPhone}</span>
+                                  </a>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    {order.userEmail || (order.userId === 'anonymous' ? 'Web Buyer' : `UID: ${order.userId?.slice(0, 8)}`)}
+                                  </span>
+                                )}
                               </div>
                             </td>
 
@@ -1251,13 +1471,18 @@ export function Dashboard() {
                               </span>
                             </td>
 
-                            {/* Product / Details */}
+                            {/* Product / Details & Keys */}
                             <td className="py-3.5 px-5 text-xs text-zinc-300">
                               <div className="font-medium text-zinc-200">
                                 {resolveProductName(order.category, settings.categories, inventory)} - {order.label}
                               </div>
-                              <div className="text-[11px] text-zinc-500">
-                                {order.keys.length} {order.keys.length === 1 ? 'Key' : 'Keys'} delivered
+                              <div className="text-[11px] text-zinc-400 flex items-center gap-1.5 mt-0.5">
+                                <span>{order.keys.length} {order.keys.length === 1 ? 'Key' : 'Keys'}</span>
+                                {order.keys.length > 0 && (
+                                  <span className="font-mono text-[10px] text-emerald-300 bg-emerald-950/40 px-1.5 py-0.2 rounded border border-emerald-500/20 truncate max-w-[160px]">
+                                    {order.keys[0]}
+                                  </span>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1759,6 +1984,8 @@ export function Dashboard() {
                           const q = qrSearchQuery.toLowerCase();
                           return (
                             (o.orderId || '').toLowerCase().includes(q) ||
+                            (o.customerName || '').toLowerCase().includes(q) ||
+                            (o.customerPhone || '').toLowerCase().includes(q) ||
                             (o.userEmail || '').toLowerCase().includes(q) ||
                             (o.userId || '').toLowerCase().includes(q) ||
                             (o.productName || '').toLowerCase().includes(q)
@@ -1810,12 +2037,46 @@ export function Dashboard() {
                               )}
                             </td>
 
-                            {/* Customer */}
+                            {/* Customer Details */}
                             <td className="py-3.5 px-5 text-xs text-zinc-300">
-                              <div className="font-medium text-zinc-200">
-                                {ord.userEmail || (ord.userId === 'anonymous' ? 'Guest Customer' : ord.userId)}
+                              <div className="font-bold text-white text-sm">
+                                {ord.customerName || (ord.userEmail ? ord.userEmail.split('@')[0] : 'Customer')}
                               </div>
-                              <div className="text-[10px] font-mono text-zinc-500">UID: {ord.userId?.slice(0, 10) || 'N/A'}...</div>
+                              
+                              {ord.customerPhone ? (
+                                <div className="flex items-center gap-1.5 mt-1">
+                                  <span className="font-mono text-emerald-400 font-semibold text-xs">+91 {ord.customerPhone}</span>
+                                  <a
+                                    href={`https://wa.me/91${ord.customerPhone.replace(/[^0-9]/g, '')}?text=Hello%20${encodeURIComponent(ord.customerName || 'Customer')},%20regarding%20your%20order%20${ord.orderId}%20at%20Arman%20X%20Store`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold transition-all shadow-[0_0_8px_rgba(16,185,129,0.2)]"
+                                    title="Open WhatsApp Chat"
+                                  >
+                                    <MessageCircle className="w-2.5 h-2.5" />
+                                    <span>WhatsApp</span>
+                                  </a>
+                                </div>
+                              ) : null}
+
+                              {ord.userEmail && (
+                                <div className="text-[11px] text-zinc-400 truncate max-w-[180px] mt-0.5 font-mono">
+                                  {ord.userEmail}
+                                </div>
+                              )}
+
+                              {ord.deliveredKeys && ord.deliveredKeys.length > 0 && (
+                                <div className="mt-1.5 p-1 px-2 rounded bg-black/70 border border-emerald-500/30 text-[10px] font-mono text-emerald-300 flex items-center justify-between gap-1">
+                                  <span className="truncate max-w-[130px] font-bold">{ord.deliveredKeys[0]}</span>
+                                  <button
+                                    onClick={() => handleCopyText(ord.deliveredKeys![0], `key_${ord.orderId}`)}
+                                    className="text-zinc-400 hover:text-white"
+                                    title="Copy Delivered Key"
+                                  >
+                                    {copiedText === `key_${ord.orderId}` ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                  </button>
+                                </div>
+                              )}
                             </td>
 
                             {/* Amount */}
@@ -2028,11 +2289,11 @@ export function Dashboard() {
                     <tr>
                       <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Order ID</th>
                       <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Timestamp</th>
-                      <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">User Email</th>
+                      <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Customer & WhatsApp</th>
                       <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 text-right">Amount (₹)</th>
                       <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 text-center">Payment Status</th>
                       <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Type</th>
-                      <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Item / Details</th>
+                      <th className="py-3.5 px-5 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Item & Keys</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-800/80">
@@ -2047,6 +2308,8 @@ export function Dashboard() {
                         type: 'order' | 'deposit' | 'refund' | 'adjustment' | 'deduction' | 'qr_pending';
                         userId: string;
                         userEmail?: string;
+                        customerName?: string;
+                        customerPhone?: string;
                         displayName?: string;
                         title: string;
                         subtitle: string;
@@ -2076,10 +2339,12 @@ export function Dashboard() {
                             type: 'order',
                             userId: p.userId,
                             userEmail: p.userEmail || user?.email,
-                            displayName: user?.displayName || user?.customId,
+                            customerName: p.customerName || user?.displayName,
+                            customerPhone: p.customerPhone || user?.phone,
+                            displayName: p.customerName || user?.displayName || user?.customId || 'Customer',
                             title: `${productName} - ${p.label}`,
                             subtitle: p.category,
-                            reference: p.couponCode ? `Coupon: ${p.couponCode}` : 'Wallet Purchase',
+                            reference: p.couponCode ? `Coupon: ${p.couponCode}` : 'Key Purchase',
                             keysCount: p.keys.length,
                             keys: p.keys,
                             amount: calculatedAmount,
@@ -2105,7 +2370,9 @@ export function Dashboard() {
                             type: t.type,
                             userId: t.userId,
                             userEmail: t.userEmail || user?.email,
-                            displayName: user?.displayName || user?.customId,
+                            customerName: user?.displayName,
+                            customerPhone: user?.phone,
+                            displayName: user?.displayName || user?.customId || 'Customer',
                             title: t.type === 'deposit' 
                               ? 'Wallet Deposit' 
                               : t.type === 'refund' 
@@ -2139,11 +2406,14 @@ export function Dashboard() {
                           type: isDeposit ? 'deposit' : 'order',
                           userId: po.userId || 'anonymous',
                           userEmail: po.userEmail || user?.email,
-                          displayName: po.customerName || user?.displayName || user?.customId,
+                          customerName: po.customerName || user?.displayName,
+                          customerPhone: po.customerPhone || user?.phone,
+                          displayName: po.customerName || user?.displayName || user?.customId || 'Customer',
                           title: po.productName || (isDeposit ? 'Wallet Deposit (UPI QR)' : 'Direct Key Purchase'),
                           subtitle: po.durationLabel || po.paymentMethod || 'FamGateway QR',
                           reference: po.paymentMethod || 'FamGateway UPI QR',
-                          keysCount: isDeposit ? 0 : 1,
+                          keysCount: isDeposit ? 0 : (po.deliveredKeys?.length || 1),
+                          keys: po.deliveredKeys,
                           amount: po.amount,
                           status: po.status === 'completed' || po.status === 'success' ? 'Success' : po.status === 'failed' ? 'Failed' : 'Pending',
                           coupon: po.couponCode
@@ -2157,6 +2427,8 @@ export function Dashboard() {
                           r.id.toLowerCase().includes(query) ||
                           r.userId.toLowerCase().includes(query) ||
                           (r.userEmail && r.userEmail.toLowerCase().includes(query)) ||
+                          (r.customerName && r.customerName.toLowerCase().includes(query)) ||
+                          (r.customerPhone && r.customerPhone.toLowerCase().includes(query)) ||
                           (r.displayName && r.displayName.toLowerCase().includes(query)) ||
                           r.title.toLowerCase().includes(query) ||
                           r.reference.toLowerCase().includes(query) ||
@@ -2218,13 +2490,29 @@ export function Dashboard() {
                               </div>
                             </td>
 
-                            {/* User Email & Customer */}
+                            {/* Customer & WhatsApp */}
                             <td className="py-4 px-5 text-xs">
-                              <div className="font-medium text-white truncate max-w-[190px]">
-                                {txn.userEmail || (txn.userId === 'anonymous' ? 'Guest Customer' : txn.userId)}
+                              <div className="font-bold text-white text-sm truncate max-w-[190px] flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                <span>{txn.customerName || txn.displayName || (txn.userId === 'anonymous' ? 'Customer' : txn.userId)}</span>
                               </div>
-                              <div className="text-[11px] text-zinc-400">
-                                {txn.displayName || (txn.userId === 'anonymous' ? 'Guest' : 'Customer')}
+                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                {txn.customerPhone ? (
+                                  <a
+                                    href={`https://wa.me/91${txn.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${txn.customerName || ''}, aapka Arman X Store order #${txn.id} verified hai.`)}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+                                    title="Click to chat on WhatsApp"
+                                  >
+                                    <MessageCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                                    <span>+91 {txn.customerPhone}</span>
+                                  </a>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-400 font-mono">
+                                    {txn.userEmail || (txn.userId === 'anonymous' ? 'Web Buyer' : txn.userId)}
+                                  </span>
+                                )}
                               </div>
                             </td>
 
@@ -2292,16 +2580,34 @@ export function Dashboard() {
                               )}
                             </td>
 
-                            {/* Item / Details */}
+                            {/* Item & Keys */}
                             <td className="py-4 px-5 text-xs text-zinc-300">
                               <div className="font-medium text-zinc-200">{txn.title}</div>
-                              <div className="text-[11px] text-zinc-500 mt-0.5">
-                                {isOrder && txn.keys ? (
-                                  <span className="font-mono text-cyan-400">{txn.keys.length} Key(s) Delivered</span>
-                                ) : (
-                                  txn.reference
-                                )}
-                              </div>
+                              {txn.keys && txn.keys.length > 0 ? (
+                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                  {txn.keys.map((k, i) => (
+                                    <span key={i} className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-emerald-300 bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/30">
+                                      <Key className="w-2.5 h-2.5 text-emerald-400" />
+                                      <span>{k}</span>
+                                      <button
+                                        onClick={() => handleCopyText(k, `key_${txn.id}_${i}`)}
+                                        className="text-zinc-400 hover:text-white p-0.5"
+                                        title="Copy key"
+                                      >
+                                        {copiedText === `key_${txn.id}_${i}` ? (
+                                          <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                        ) : (
+                                          <Copy className="w-2.5 h-2.5" />
+                                        )}
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-[11px] text-zinc-500 mt-0.5">
+                                  {txn.reference}
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );
@@ -2396,6 +2702,20 @@ export function Dashboard() {
                   </div>
                   <div className="flex items-center gap-2.5 flex-wrap self-start md:self-auto">
                     <button
+                      onClick={handleRefreshUsers}
+                      disabled={isRefreshingUsers}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600/25 hover:bg-indigo-600/35 border border-indigo-500/40 text-indigo-300 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-[0_0_12px_rgba(99,102,241,0.2)] disabled:opacity-50"
+                      title="Fetch latest registered users live from Firestore database"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 text-indigo-400 ${isRefreshingUsers ? 'animate-spin' : ''}`} />
+                      <span>{isRefreshingUsers ? 'Syncing...' : 'Live Sync Users'}</span>
+                    </button>
+                    {refreshUsersMsg && (
+                      <span className="text-xs text-emerald-400 font-semibold bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg animate-in fade-in">
+                        {refreshUsersMsg}
+                      </span>
+                    )}
+                    <button
                       onClick={handleExportAllTransactionsCSV}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 rounded-xl text-xs font-semibold transition-all cursor-pointer shadow-[0_0_12px_rgba(16,185,129,0.15)]"
                       title="Download all user transactions CSV for offline bookkeeping"
@@ -2461,8 +2781,9 @@ export function Dashboard() {
                       onChange={(e) => setUserFilter(e.target.value as any)}
                       className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3.5 py-2.5 text-sm text-zinc-300 focus:outline-none focus:border-fuchsia-500"
                     >
-                      <option value="all">All Users ({users.length})</option>
+                      <option value="all">All Users & Customers ({users.length})</option>
                       <option value="buyers">Active Buyers ({users.filter(u => u.totalOrders > 0).length})</option>
+                      <option value="phone">With WhatsApp / Phone ({users.filter(u => !!u.phone).length})</option>
                       <option value="leads">Zero Orders ({users.filter(u => u.totalOrders === 0).length})</option>
                       <option value="balance">Has Balance ({users.filter(u => (u.balance || 0) > 0).length})</option>
                       <option value="vip">VIP Spenders ₹1k+ ({users.filter(u => (u.totalSpent || 0) >= 1000).length})</option>
@@ -2491,10 +2812,10 @@ export function Dashboard() {
                 <table className="w-full text-left border-collapse">
                   <thead className="bg-zinc-950/60">
                     <tr>
-                      <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">User Profile</th>
-                      <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Contact / Email</th>
+                      <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Customer Profile</th>
+                      <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">WhatsApp & Contact</th>
                       <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Dates & Activity</th>
-                      <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Orders & Spend</th>
+                      <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800">Orders & Keys Delivered</th>
                       <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 text-right">Wallet Balance</th>
                       <th className="py-3.5 px-6 text-xs font-semibold text-zinc-400 uppercase tracking-wider border-b border-zinc-800 text-center">Actions</th>
                     </tr>
@@ -2506,12 +2827,14 @@ export function Dashboard() {
                         const matchesQuery = !q || 
                           (u.displayName && u.displayName.toLowerCase().includes(q)) ||
                           (u.email && u.email.toLowerCase().includes(q)) ||
+                          (u.phone && u.phone.includes(q)) ||
                           (u.customId && u.customId.toLowerCase().includes(q)) ||
                           (u.uid && u.uid.toLowerCase().includes(q));
 
                         if (!matchesQuery) return false;
 
                         if (userFilter === 'buyers') return u.totalOrders > 0;
+                        if (userFilter === 'phone') return !!u.phone;
                         if (userFilter === 'leads') return u.totalOrders === 0;
                         if (userFilter === 'balance') return (u.balance || 0) > 0;
                         if (userFilter === 'vip') return (u.totalSpent || 0) >= 1000;
@@ -2531,7 +2854,7 @@ export function Dashboard() {
                           <tr>
                             <td colSpan={6} className="py-16 text-center text-zinc-500">
                               <Users className="w-12 h-12 mx-auto mb-3 opacity-30 text-zinc-400" />
-                              <p className="text-base font-medium text-zinc-300">No users found</p>
+                              <p className="text-base font-medium text-zinc-300">No customers found</p>
                               <p className="text-xs text-zinc-500 mt-1">Try adjusting your search query or filter options.</p>
                             </td>
                           </tr>
@@ -2560,7 +2883,7 @@ export function Dashboard() {
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
                                     <span className="font-semibold text-white text-sm truncate max-w-[180px]">
-                                      {user.displayName || user.customId || 'Store User'}
+                                      {user.displayName || user.customId || 'Store Customer'}
                                     </span>
                                     {isOwner ? (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
@@ -2577,18 +2900,38 @@ export function Dashboard() {
                                     )}
                                   </div>
                                   <div className="text-xs text-zinc-400 flex items-center gap-1 font-mono mt-0.5">
-                                    <span>@{user.customId || user.email?.split('@')[0] || 'user'}</span>
+                                    <span>@{user.customId || user.email?.split('@')[0] || 'customer'}</span>
                                   </div>
                                 </div>
                               </div>
                             </td>
 
-                            {/* Contact / Email */}
+                            {/* Contact / WhatsApp */}
                             <td className="py-4 px-6 text-sm">
                               <div className="space-y-1">
+                                {user.phone ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <a
+                                      href={`https://wa.me/91${user.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${user.displayName || ''}, welcome to Arman X Store!`)}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+                                      title="Open WhatsApp chat with customer"
+                                    >
+                                      <MessageCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                      <span>+91 {user.phone}</span>
+                                    </a>
+                                  </div>
+                                ) : (
+                                  <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1">
+                                    <Phone className="w-3 h-3 text-zinc-600" />
+                                    <span>No phone recorded</span>
+                                  </div>
+                                )}
+
                                 <div className="flex items-center gap-1.5">
                                   <Mail className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                                  <span className="text-zinc-300 text-xs font-mono truncate max-w-[190px]">
+                                  <span className="text-zinc-300 text-xs font-mono truncate max-w-[170px]">
                                     {user.email || 'No email associated'}
                                   </span>
                                   {user.email && (
@@ -2605,20 +2948,9 @@ export function Dashboard() {
                                     </button>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 font-mono">
+                                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 font-mono">
                                   <span>UID:</span>
-                                  <span className="truncate max-w-[120px]">{user.uid}</span>
-                                  <button
-                                    onClick={() => handleCopyText(user.uid, `uid_${user.uid}`)}
-                                    className="hover:text-fuchsia-400 transition-colors"
-                                    title="Copy UID"
-                                  >
-                                    {copiedText === `uid_${user.uid}` ? (
-                                      <Check className="w-2.5 h-2.5 text-green-400" />
-                                    ) : (
-                                      <Copy className="w-2.5 h-2.5" />
-                                    )}
-                                  </button>
+                                  <span className="truncate max-w-[110px]">{user.uid}</span>
                                 </div>
                               </div>
                             </td>
@@ -2637,7 +2969,7 @@ export function Dashboard() {
                               </div>
                             </td>
 
-                            {/* Orders & Total Spend */}
+                            {/* Orders & Keys Delivered */}
                             <td className="py-4 px-6 text-sm">
                               <div>
                                 <div className="text-white font-medium text-xs flex items-center gap-1.5">
@@ -2648,6 +2980,23 @@ export function Dashboard() {
                                 <div className="text-xs font-semibold text-emerald-400 mt-0.5">
                                   ₹{user.totalSpent.toLocaleString()} spent
                                 </div>
+                                {user.lastKeys && user.lastKeys.length > 0 && (
+                                  <div className="mt-1.5 flex items-center gap-1 font-mono text-[10px] text-emerald-300 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-500/30 truncate max-w-[180px]">
+                                    <Key className="w-2.5 h-2.5 text-emerald-400 shrink-0" />
+                                    <span className="truncate">{user.lastKeys[0]}</span>
+                                    <button
+                                      onClick={() => handleCopyText(user.lastKeys![0], `last_key_${user.uid}`)}
+                                      className="text-zinc-400 hover:text-white p-0.5 shrink-0"
+                                      title="Copy license key"
+                                    >
+                                      {copiedText === `last_key_${user.uid}` ? (
+                                        <Check className="w-2.5 h-2.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-2.5 h-2.5" />
+                                      )}
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </td>
 
@@ -5168,6 +5517,465 @@ export function Dashboard() {
           </div>
         )}
 
+        {(activeTab === 'faqs' || activeTab === 'faq') && (
+          <div className="space-y-8 animate-in fade-in duration-200">
+            {/* Header Box */}
+            <div className="bg-[#121215]/90 rounded-3xl border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-6 sm:p-8 backdrop-blur-xl theme-card relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400 shadow-[0_0_20px_rgba(99,102,241,0.3)]">
+                    <HelpCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl sm:text-2xl font-display font-bold text-white tracking-tight theme-text-title flex items-center gap-2">
+                      <span>FAQ & Help Center Management</span>
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/10 text-indigo-300 border border-indigo-500/30">
+                        {faqs.length} Questions
+                      </span>
+                    </h2>
+                    <p className="text-zinc-400 text-xs sm:text-sm mt-0.5 theme-text-sub">
+                      Manage customer questions & answers shown in the Homepage FAQ accordion. Add, edit, reorder and publish in real-time.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 w-full sm:w-auto justify-end flex-wrap">
+                  {onNavigateHome && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onNavigateHome();
+                        setTimeout(() => {
+                          const el = document.getElementById('faq');
+                          el?.scrollIntoView({ behavior: 'smooth' });
+                        }, 100);
+                      }}
+                      className="px-3.5 py-2.5 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer theme-pill"
+                      title="Preview on Homepage"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>View Live FAQ</span>
+                    </button>
+                  )}
+
+                  {resetFaqConfirm ? (
+                    <div className="flex items-center gap-1.5 bg-amber-950/60 border border-amber-500/40 p-1 rounded-xl animate-in fade-in">
+                      <span className="text-[11px] text-amber-300 font-bold px-1.5">Reset to defaults?</span>
+                      <button
+                        type="button"
+                        onClick={handleResetFaqs}
+                        className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                      >
+                        Yes, Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setResetFaqConfirm(false)}
+                        className="px-2 py-1.5 bg-zinc-800 text-zinc-400 hover:text-white text-xs rounded-lg transition-colors cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setResetFaqConfirm(true)}
+                      className="px-3.5 py-2.5 bg-zinc-900/80 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer theme-pill"
+                      title="Restore Standard Default Questions"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-zinc-400" />
+                      <span>Reset Defaults</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleOpenAddFaq}
+                    className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)] flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Question</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Toast Feedback */}
+              {faqSuccessMsg && (
+                <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 rounded-xl text-xs flex items-center gap-2 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{faqSuccessMsg}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Quick Metrics Cards */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="bg-[#121215]/90 border border-white/10 rounded-2xl p-4 sm:p-5 theme-card">
+                <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5 mb-1 theme-text-sub">
+                  <Layers className="w-3.5 h-3.5 text-indigo-400" />
+                  Total Questions
+                </span>
+                <div className="text-2xl font-bold text-white theme-text-title">{faqs.length}</div>
+                <span className="text-[11px] text-zinc-500 mt-1 block">In database store</span>
+              </div>
+
+              <div className="bg-[#121215]/90 border border-white/10 rounded-2xl p-4 sm:p-5 theme-card">
+                <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5 mb-1 theme-text-sub">
+                  <Eye className="w-3.5 h-3.5 text-emerald-400" />
+                  Published (Active)
+                </span>
+                <div className="text-2xl font-bold text-emerald-400">{faqs.filter(f => f.isActive).length}</div>
+                <span className="text-[11px] text-emerald-500/80 mt-1 block">Live on store homepage</span>
+              </div>
+
+              <div className="bg-[#121215]/90 border border-white/10 rounded-2xl p-4 sm:p-5 theme-card">
+                <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5 mb-1 theme-text-sub">
+                  <EyeOff className="w-3.5 h-3.5 text-amber-400" />
+                  Hidden (Drafts)
+                </span>
+                <div className="text-2xl font-bold text-amber-400">{faqs.filter(f => !f.isActive).length}</div>
+                <span className="text-[11px] text-amber-500/80 mt-1 block">Not visible to customers</span>
+              </div>
+
+              <div className="bg-[#121215]/90 border border-white/10 rounded-2xl p-4 sm:p-5 theme-card">
+                <span className="text-xs text-zinc-400 font-medium flex items-center gap-1.5 mb-1 theme-text-sub">
+                  <Tag className="w-3.5 h-3.5 text-purple-400" />
+                  Categories
+                </span>
+                <div className="text-2xl font-bold text-purple-400">{Array.from(new Set(faqs.map(f => f.category))).length}</div>
+                <span className="text-[11px] text-zinc-500 mt-1 block">Unique topic groups</span>
+              </div>
+            </div>
+
+            {/* Quick Starter Templates */}
+            <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-4 sm:p-5 theme-card">
+              <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span className="text-xs sm:text-sm font-bold text-white theme-text-title">
+                    ⚡ Quick Starter Templates (1-Click Add Common Questions)
+                  </span>
+                </div>
+                <span className="text-[11px] text-zinc-400">Tap any template to add to your FAQ</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {[
+                  {
+                    question: 'How do I download and install the loader APK?',
+                    answer: 'After purchasing your key, download the recommended Loader APK from our Telegram channel or WhatsApp update link. Install the APK, open it, paste your license key and tap Start.',
+                    category: 'Activation & Keys'
+                  },
+                  {
+                    question: 'What happens if a payment gets stuck in banking server?',
+                    answer: 'If your money was deducted but order was not verified within 2 minutes, simply note your 12-digit UTR / UPI Ref ID and send it to our WhatsApp support. Our admin will credit keys or wallet instantly.',
+                    category: 'Payment & UPI'
+                  },
+                  {
+                    question: 'Can I transfer key to another phone?',
+                    answer: 'Keys are hardware-bound upon first activation for anti-sharing security. If you change your phone, contact support with your purchase receipt for a free hardware ID reset.',
+                    category: 'Activation & Keys'
+                  }
+                ].map((template, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleAddPresetFaq(template)}
+                    className="p-3 text-left rounded-xl bg-zinc-900/60 hover:bg-zinc-800/80 border border-white/5 hover:border-indigo-500/40 transition-all text-xs group cursor-pointer"
+                  >
+                    <div className="flex items-center justify-between gap-1 text-[10px] text-indigo-400 font-bold mb-1">
+                      <span>{template.category}</span>
+                      <Plus className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                    <div className="text-zinc-200 group-hover:text-white font-medium line-clamp-1">
+                      {template.question}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Filter and Search Bar */}
+            <div className="bg-[#121215]/90 rounded-2xl border border-white/10 p-4 sm:p-5 theme-card flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={faqSearchQuery}
+                  onChange={(e) => setFaqSearchQuery(e.target.value)}
+                  placeholder="Search questions, answers or categories..."
+                  className="w-full bg-[#16161b] border border-white/10 rounded-xl pl-10 pr-9 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 theme-input"
+                />
+                {faqSearchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setFaqSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-white"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Category Filter */}
+                <select
+                  value={faqCategoryFilter}
+                  onChange={(e) => setFaqCategoryFilter(e.target.value)}
+                  className="bg-[#16161b] border border-white/10 rounded-xl px-3 py-2.5 text-xs font-semibold text-zinc-300 focus:outline-none focus:border-indigo-500 theme-input cursor-pointer"
+                >
+                  <option value="all">All Categories ({faqs.length})</option>
+                  {Array.from(new Set(faqs.map(f => f.category))).map(cat => (
+                    <option key={cat} value={cat}>
+                      {cat} ({faqs.filter(f => f.category === cat).length})
+                    </option>
+                  ))}
+                </select>
+
+                {/* Status Filter */}
+                <select
+                  value={faqStatusFilter}
+                  onChange={(e) => setFaqStatusFilter(e.target.value as any)}
+                  className="bg-[#16161b] border border-white/10 rounded-xl px-3 py-2.5 text-xs font-semibold text-zinc-300 focus:outline-none focus:border-indigo-500 theme-input cursor-pointer"
+                >
+                  <option value="all">All Statuses ({faqs.length})</option>
+                  <option value="active">Active / Published ({faqs.filter(f => f.isActive).length})</option>
+                  <option value="inactive">Hidden / Draft ({faqs.filter(f => !f.isActive).length})</option>
+                </select>
+              </div>
+            </div>
+
+            {/* FAQs List */}
+            {(() => {
+              const q = faqSearchQuery.trim().toLowerCase();
+              const filteredList = faqs
+                .filter(faq => {
+                  const matchesCat = faqCategoryFilter === 'all' || faq.category === faqCategoryFilter;
+                  const matchesStatus = 
+                    faqStatusFilter === 'all' ? true :
+                    faqStatusFilter === 'active' ? faq.isActive : !faq.isActive;
+                  const matchesQ = !q ||
+                    faq.question.toLowerCase().includes(q) ||
+                    faq.answer.toLowerCase().includes(q) ||
+                    faq.category.toLowerCase().includes(q);
+                  return matchesCat && matchesStatus && matchesQ;
+                })
+                .sort((a, b) => (a.order || 0) - (b.order || 0));
+
+              if (filteredList.length === 0) {
+                return (
+                  <div className="bg-[#121215]/90 rounded-3xl border border-white/10 p-12 text-center theme-card">
+                    <HelpCircle className="w-12 h-12 text-zinc-600 mx-auto mb-3 opacity-40" />
+                    <h3 className="text-base font-bold text-white mb-1">No FAQ Questions Found</h3>
+                    <p className="text-xs text-zinc-400 max-w-sm mx-auto mb-4">
+                      {faqSearchQuery || faqCategoryFilter !== 'all' || faqStatusFilter !== 'all'
+                        ? 'No questions match your current search and filter settings.'
+                        : 'No FAQ questions created yet. Add your first question to guide customers on the homepage.'}
+                    </p>
+                    <div className="flex items-center justify-center gap-2">
+                      {(faqSearchQuery || faqCategoryFilter !== 'all' || faqStatusFilter !== 'all') && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFaqSearchQuery('');
+                            setFaqCategoryFilter('all');
+                            setFaqStatusFilter('all');
+                          }}
+                          className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-semibold rounded-xl"
+                        >
+                          Clear Filters
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={handleOpenAddFaq}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl"
+                      >
+                        + Add Question
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-3.5">
+                  {filteredList.map((faq, idx) => {
+                    const isExpanded = expandedFaqCardId === faq.id;
+                    const isConfirmingDelete = deleteFaqConfirmId === faq.id;
+
+                    return (
+                      <div
+                        key={faq.id}
+                        className={`rounded-2xl border transition-all duration-200 overflow-hidden theme-card ${
+                          faq.isActive 
+                            ? 'bg-[#121215]/90 border-white/10 hover:border-indigo-500/40' 
+                            : 'bg-zinc-950/60 border-zinc-800 opacity-75'
+                        }`}
+                      >
+                        {/* Question Card Header */}
+                        <div className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            {/* Order & Reorder arrows */}
+                            <div className="flex flex-col items-center bg-zinc-900/90 border border-white/5 rounded-xl p-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleMoveFaqOrder(faq, 'up')}
+                                disabled={idx === 0}
+                                className="p-0.5 text-zinc-500 hover:text-white disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                                title="Move up in order"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <span className="text-[11px] font-mono font-bold text-zinc-400 px-1">
+                                #{faq.order || idx + 1}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleMoveFaqOrder(faq, 'down')}
+                                disabled={idx === filteredList.length - 1}
+                                className="p-0.5 text-zinc-500 hover:text-white disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
+                                title="Move down in order"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-indigo-300 bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">
+                                  <Tag className="w-2.5 h-2.5" />
+                                  <span>{faq.category}</span>
+                                </span>
+
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                                  faq.isActive
+                                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                    : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                                }`}>
+                                  {faq.isActive ? '● Published' : '○ Hidden'}
+                                </span>
+                              </div>
+
+                              <h3 
+                                onClick={() => setExpandedFaqCardId(isExpanded ? null : faq.id)}
+                                className="text-sm sm:text-base font-bold text-white theme-text-title cursor-pointer hover:text-indigo-300 transition-colors"
+                              >
+                                {faq.question}
+                              </h3>
+
+                              {/* Collapsed answer sneak peek */}
+                              {!isExpanded && (
+                                <p className="text-xs text-zinc-400 mt-1 line-clamp-1 theme-text-sub">
+                                  {faq.answer}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                            {/* Toggle Publish / Hidden */}
+                            <button
+                              type="button"
+                              onClick={() => toggleFAQ(faq.id)}
+                              className={`p-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer ${
+                                faq.isActive
+                                  ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                                  : 'bg-zinc-900 text-zinc-400 border-white/5 hover:bg-zinc-800'
+                              }`}
+                              title={faq.isActive ? 'Click to hide from store' : 'Click to publish on store'}
+                            >
+                              {faq.isActive ? (
+                                <ToggleRight className="w-4 h-4 text-emerald-400" />
+                              ) : (
+                                <ToggleLeft className="w-4 h-4 text-zinc-500" />
+                              )}
+                            </button>
+
+                            {/* Edit Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEditFaq(faq)}
+                              className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white border border-white/10 transition-colors cursor-pointer"
+                              title="Edit Question & Answer"
+                            >
+                              <Edit3 className="w-4 h-4" />
+                            </button>
+
+                            {/* Delete Button with Confirmation */}
+                            {isConfirmingDelete ? (
+                              <div className="flex items-center gap-1.5 bg-rose-950/60 border border-rose-500/40 p-1 rounded-xl animate-in fade-in">
+                                <span className="text-[10px] text-rose-300 font-bold px-1">Delete?</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    deleteFAQ(faq.id);
+                                    setDeleteFaqConfirmId(null);
+                                    setFaqSuccessMsg('Question deleted.');
+                                    setTimeout(() => setFaqSuccessMsg(''), 3000);
+                                  }}
+                                  className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold rounded-lg cursor-pointer"
+                                >
+                                  Yes
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteFaqConfirmId(null)}
+                                  className="px-2 py-1 bg-zinc-800 text-zinc-400 hover:text-white text-[11px] rounded-lg cursor-pointer"
+                                >
+                                  No
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setDeleteFaqConfirmId(faq.id)}
+                                className="p-2 rounded-xl text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all cursor-pointer"
+                                title="Delete FAQ Question"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            {/* Expand / Collapse Button */}
+                            <button
+                              type="button"
+                              onClick={() => setExpandedFaqCardId(isExpanded ? null : faq.id)}
+                              className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white border border-white/5 transition-colors cursor-pointer"
+                              title={isExpanded ? 'Collapse Answer' : 'Expand Answer'}
+                            >
+                              <ChevronRight className={`w-4 h-4 transition-transform duration-200 ${isExpanded ? 'rotate-90 text-indigo-400' : ''}`} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Expanded Full Answer Content */}
+                        {isExpanded && (
+                          <div className="px-5 pb-5 pt-3 border-t border-white/5 bg-black/20 text-xs sm:text-sm text-zinc-300 leading-relaxed space-y-2 animate-in fade-in duration-150 theme-text-sub">
+                            <div className="font-semibold text-zinc-400 text-[11px] uppercase tracking-wider">
+                              Customer Answer:
+                            </div>
+                            <p className="whitespace-pre-line bg-zinc-900/40 p-3.5 rounded-xl border border-white/5 text-zinc-200">
+                              {faq.answer}
+                            </p>
+                            <div className="flex items-center justify-between text-[11px] text-zinc-500 pt-1">
+                              <span>Display Order: #{faq.order || 1}</span>
+                              {faq.updatedAt && (
+                                <span>Updated: {new Date(faq.updatedAt).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
         {activeTab === 'analytics' && (
           <div className="py-12 text-center bg-zinc-900 rounded-2xl border border-zinc-800 shadow-[0_0_15px_rgba(224,0,255,0.05)]">
             <Activity className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
@@ -5176,7 +5984,7 @@ export function Dashboard() {
           </div>
         )}
         
-        {activeTab !== 'overview' && activeTab !== 'inventory' && activeTab !== 'settings' && activeTab !== 'orders' && activeTab !== 'customers' && activeTab !== 'coupons' && activeTab !== 'payment-gateway' && activeTab !== 'analytics' && activeTab !== 'menu' && (
+        {activeTab !== 'overview' && activeTab !== 'inventory' && activeTab !== 'settings' && activeTab !== 'orders' && activeTab !== 'customers' && activeTab !== 'coupons' && activeTab !== 'spin-wheel' && activeTab !== 'payment-gateway' && activeTab !== 'faqs' && activeTab !== 'faq' && activeTab !== 'analytics' && activeTab !== 'menu' && (
           <div className="py-12 text-center bg-zinc-900 rounded-2xl border border-zinc-800 shadow-[0_0_15px_rgba(224,0,255,0.05)]">
             <Activity className="w-12 h-12 text-zinc-600 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-white mb-2">{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} Module</h3>
@@ -5304,6 +6112,210 @@ export function Dashboard() {
           </div>
         );
       })()}
+
+      {/* FAQ Add / Edit Modal */}
+      {isFaqModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <div 
+            className="absolute inset-0 bg-black/80 backdrop-blur-sm" 
+            onClick={() => setIsFaqModalOpen(false)}
+          />
+          <div className="relative bg-[#121216] border border-indigo-500/40 shadow-[0_0_40px_rgba(99,102,241,0.25)] rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-white/10 theme-modal-header">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                  <HelpCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white font-display theme-text-title">
+                    {editingFaq ? 'Edit FAQ Question' : 'Add New FAQ Question'}
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5 theme-text-sub">
+                    Published questions appear immediately on the customer-facing homepage FAQ accordion.
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsFaqModalOpen(false)}
+                className="text-zinc-400 hover:text-white hover:bg-white/10 transition-all p-2 rounded-full cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto flex-1 space-y-5">
+              {faqFormError && (
+                <div className="p-3 bg-rose-500/10 border border-rose-500/30 text-rose-400 rounded-xl text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{faqFormError}</span>
+                </div>
+              )}
+
+              {/* Question Input */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 theme-text-title">
+                  QUESTION TITLE *
+                </label>
+                <input
+                  type="text"
+                  value={faqFormQuestion}
+                  onChange={(e) => setFaqFormQuestion(e.target.value)}
+                  placeholder="e.g. Payment ke baad key kitni der me milti hai?"
+                  className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 theme-input"
+                />
+              </div>
+
+              {/* Category & Order Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Category */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 theme-text-title">
+                    TOPIC CATEGORY
+                  </label>
+                  <select
+                    value={faqFormCategory}
+                    onChange={(e) => setFaqFormCategory(e.target.value)}
+                    className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-3 text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500 theme-input cursor-pointer"
+                  >
+                    <option value="Purchases & Delivery">Purchases & Delivery</option>
+                    <option value="Payment & UPI">Payment & UPI</option>
+                    <option value="Activation & Keys">Activation & Keys</option>
+                    <option value="Wallet & Balance">Wallet & Balance</option>
+                    <option value="Support & Help">Support & Help</option>
+                    <option value="Coupons & Rewards">Coupons & Rewards</option>
+                    <option value="Custom">Custom Category...</option>
+                  </select>
+                </div>
+
+                {/* Display Order */}
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 theme-text-title">
+                    DISPLAY ORDER INDEX (1, 2, 3...)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={faqFormOrder}
+                    onChange={(e) => setFaqFormOrder(e.target.value)}
+                    className="w-full bg-[#181820] border border-white/10 rounded-xl px-4 py-3 text-xs sm:text-sm font-mono text-white focus:outline-none focus:border-indigo-500 theme-input"
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+
+              {/* Custom Category Input if selected */}
+              {faqFormCategory === 'Custom' && (
+                <div className="space-y-1.5 animate-in fade-in">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-indigo-400">
+                    ENTER CUSTOM CATEGORY NAME
+                  </label>
+                  <input
+                    type="text"
+                    value={faqFormCustomCategory}
+                    onChange={(e) => setFaqFormCustomCategory(e.target.value)}
+                    placeholder="e.g. Android 14 Compatibility"
+                    className="w-full bg-[#181820] border border-indigo-500/40 rounded-xl px-4 py-3 text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-400 theme-input"
+                  />
+                </div>
+              )}
+
+              {/* Publish Toggle */}
+              <div className="p-4 bg-[#181820] border border-white/10 rounded-2xl flex items-center justify-between gap-3 theme-card">
+                <div>
+                  <h4 className="text-xs sm:text-sm font-bold text-white theme-text-title">
+                    Publish on Homepage
+                  </h4>
+                  <p className="text-[11px] text-zinc-400 theme-text-sub">
+                    {faqFormActive ? 'Visible to all customers in the FAQ accordion.' : 'Hidden as draft (not visible on store).'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFaqFormActive(!faqFormActive)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 ${
+                    faqFormActive
+                      ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                      : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                  }`}
+                >
+                  {faqFormActive ? (
+                    <>
+                      <ToggleRight className="w-4 h-4 text-emerald-400" />
+                      <span>Published</span>
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="w-4 h-4 text-zinc-500" />
+                      <span>Hidden</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Answer Textarea */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <label className="block text-xs font-bold uppercase tracking-wider text-zinc-400 theme-text-title">
+                    ANSWER CONTENT *
+                  </label>
+                  <span className="text-[11px] text-zinc-500 font-mono">
+                    {faqFormAnswer.length} chars
+                  </span>
+                </div>
+                <textarea
+                  rows={5}
+                  value={faqFormAnswer}
+                  onChange={(e) => setFaqFormAnswer(e.target.value)}
+                  placeholder="Provide clear, step-by-step instructions or information for customers. Multi-line text is preserved..."
+                  className="w-full bg-[#181820] border border-white/10 rounded-xl p-4 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 leading-relaxed theme-input"
+                />
+              </div>
+
+              {/* Live Preview Box */}
+              {(faqFormQuestion || faqFormAnswer) && (
+                <div className="p-4 rounded-2xl bg-indigo-950/20 border border-indigo-500/30 space-y-2">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1">
+                    <Eye className="w-3 h-3" />
+                    <span>Live Customer Preview (Homepage Accordion)</span>
+                  </div>
+                  <div className="p-3 bg-[#14151b] rounded-xl border border-indigo-500/30">
+                    <div className="font-bold text-sm text-white mb-1.5 flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-md bg-indigo-500/20 text-indigo-300 text-[10px] flex items-center justify-center font-mono font-bold">
+                        {faqFormOrder || '1'}
+                      </span>
+                      <span>{faqFormQuestion || 'Your question here...'}</span>
+                    </div>
+                    <p className="text-xs text-zinc-300 pl-7 whitespace-pre-line leading-relaxed">
+                      {faqFormAnswer || 'Your detailed answer preview...'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-6 border-t border-white/10 bg-[#121216] flex justify-end gap-3 theme-modal-footer">
+              <button
+                type="button"
+                onClick={() => setIsFaqModalOpen(false)}
+                className="px-5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs sm:text-sm font-semibold rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveFaq}
+                className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-bold text-xs sm:text-sm rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)] cursor-pointer flex items-center gap-2 active:scale-95"
+              >
+                <Check className="w-4 h-4" />
+                <span>{editingFaq ? 'Update Question' : 'Save Question'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

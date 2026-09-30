@@ -1,4 +1,4 @@
-import { Check, X, Minus, Plus, Loader2, Key, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users, ArrowRight, ShieldCheck, Zap } from 'lucide-react';
+import { Check, X, Minus, Plus, Loader2, Key, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users, ArrowRight, ShieldCheck, Zap, User, Phone, MessageCircle } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import confetti from 'canvas-confetti';
 import { FastAverageColor } from 'fast-average-color';
@@ -17,6 +17,8 @@ export interface PurchaseSuccessPayload {
   couponCode?: string;
   date?: string;
   orderId?: string;
+  customerName?: string;
+  customerPhone?: string;
 }
 
 interface PricingProps {
@@ -169,6 +171,20 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [couponError, setCouponError] = useState('');
 
+  // Customer Contact Details
+  const [customerName, setCustomerName] = useState(() => {
+    return localStorage.getItem('customer_name') || currentUser?.displayName || '';
+  });
+  const [customerPhone, setCustomerPhone] = useState(() => {
+    return localStorage.getItem('customer_phone') || '';
+  });
+
+  useEffect(() => {
+    if (currentUser?.displayName && !customerName) {
+      setCustomerName(currentUser.displayName);
+    }
+  }, [currentUser]);
+
   // Fam Gateway Popup Modal State
   const [famModalOpen, setFamModalOpen] = useState(false);
   const [famCheckoutUrl, setFamCheckoutUrl] = useState('');
@@ -306,7 +322,22 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
    */
   const handleProceedDirectRedirect = async () => {
     setPaymentError('');
+
+    const cleanPhone = (customerPhone || '').replace(/[^0-9]/g, '');
+    if (!customerName.trim()) {
+      setPaymentError('Kripya apna Full Name daalein taaki aapki VIP Key aapke naam par generate ho sake.');
+      return;
+    }
+    if (cleanPhone.length < 10) {
+      setPaymentError('Kripya 10-digit WhatsApp / Mobile number daalein taaki payment verify ho sake aur WhatsApp receipt mil sake.');
+      return;
+    }
+
     setPaymentStep('redirecting');
+
+    // Save contact info locally for convenience
+    if (customerName) localStorage.setItem('customer_name', customerName);
+    if (customerPhone) localStorage.setItem('customer_phone', customerPhone);
 
     try {
       const order = await createFamGatewayOrder({
@@ -317,6 +348,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         quantity: quantity,
         userId: currentUser?.uid,
         userEmail: currentUser?.email,
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
         couponCode: appliedCoupon?.code
       });
 
@@ -328,6 +361,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         amount: totalPrice,
         userId: currentUser?.uid,
         userEmail: currentUser?.email,
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
         productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
         categoryId: selectedProduct,
         durationLabel: selectedDuration?.label,
@@ -361,7 +396,13 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         quantity,
         currentUser?.uid || 'anonymous',
         currentUser?.email || undefined,
-        { amount: totalPrice, couponCode: appliedCoupon?.code }
+        { 
+          amount: totalPrice, 
+          couponCode: appliedCoupon?.code,
+          customerName: customerName.trim() || undefined,
+          customerPhone: customerPhone.trim() || undefined,
+          orderId: paymentData.orderId
+        }
       );
 
       const payload: PurchaseSuccessPayload = {
@@ -371,6 +412,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         amount: totalPrice,
         couponCode: appliedCoupon?.code,
         orderId: paymentData.orderId,
+        customerName: customerName.trim() || undefined,
+        customerPhone: customerPhone.trim() || undefined,
         date: new Date().toISOString()
       };
 
@@ -614,6 +657,56 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                         </button>
                       </div>
                       <span className="text-xs text-zinc-500">Max 10 keys per order</span>
+                    </div>
+                  </div>
+
+                  {/* Customer Contact Details (Customer Identity & WhatsApp) */}
+                  <div className="p-4 rounded-2xl bg-[#14171d] border border-cyan-500/30 space-y-3 shadow-[0_0_20px_rgba(6,182,212,0.08)]">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-bold text-zinc-100 uppercase tracking-wider flex items-center gap-1.5">
+                        <User className="w-3.5 h-3.5 text-cyan-400" />
+                        <span>Customer Details (ग्राहक की जानकारी)</span>
+                        <span className="text-[10px] text-rose-400 font-bold">*Required</span>
+                      </label>
+                      <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
+                        <MessageCircle className="w-3 h-3" />
+                        <span>WhatsApp VIP Alert</span>
+                      </span>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      <div>
+                        <input
+                          type="text"
+                          value={customerName}
+                          onChange={(e) => {
+                            setCustomerName(e.target.value);
+                            if (paymentError) setPaymentError('');
+                          }}
+                          placeholder="Apna Full Name daalein (e.g. Arman Barik)"
+                          className="w-full bg-[#0d0f13] border border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 focus:outline-none focus:border-cyan-400 focus:ring-1 focus:ring-cyan-400/30 transition-all font-medium"
+                        />
+                      </div>
+
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400 text-xs font-mono font-bold">
+                          +91
+                        </div>
+                        <input
+                          type="tel"
+                          value={customerPhone}
+                          onChange={(e) => {
+                            setCustomerPhone(e.target.value.replace(/[^0-9]/g, '').slice(0, 10));
+                            if (paymentError) setPaymentError('');
+                          }}
+                          placeholder="WhatsApp Mobile Number (10 digits)"
+                          maxLength={10}
+                          className="w-full bg-[#0d0f13] border border-zinc-700/80 rounded-xl pl-11 pr-3.5 py-2.5 text-xs sm:text-sm text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400/30 transition-all font-semibold"
+                        />
+                      </div>
+                      <p className="text-[11px] text-cyan-300/80 font-medium pl-0.5">
+                        ⚡ Payment ke baad VIP License Key aur receipt is WhatsApp number par bhi track hogi.
+                      </p>
                     </div>
                   </div>
 

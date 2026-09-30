@@ -49,6 +49,8 @@ export interface CreateOrderParams {
   quantity?: number;
   userId?: string;
   userEmail?: string;
+  customerName?: string;
+  customerPhone?: string;
   couponCode?: string;
 }
 
@@ -126,7 +128,8 @@ export async function createFamGatewayOrder(params: CreateOrderParams): Promise<
         orderId: orderId,
         userId: params.userId || 'anonymous',
         userEmail: params.userEmail || '',
-        customerName: params.userEmail ? params.userEmail.split('@')[0] : 'Customer',
+        customerName: params.customerName || (params.userEmail ? params.userEmail.split('@')[0] : 'Customer'),
+        customerPhone: params.customerPhone || '',
         type: params.productName?.toLowerCase().includes('balance') || params.productName?.toLowerCase().includes('wallet') ? 'qr_deposit' : 'direct_purchase',
         amount: params.amount,
         status: 'pending',
@@ -161,6 +164,8 @@ export async function createFamGatewayOrder(params: CreateOrderParams): Promise<
         quantity: params.quantity || 1,
         user_id: params.userId,
         user_email: params.userEmail,
+        customer_name: params.customerName,
+        customer_phone: params.customerPhone,
         coupon_code: params.couponCode,
         custom_redirect_url: verifyRedirectUrl
       })

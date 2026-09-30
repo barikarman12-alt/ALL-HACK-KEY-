@@ -13,6 +13,8 @@ interface StoredOrder {
   quantity?: number;
   user_id?: string;
   user_email?: string;
+  customer_name?: string;
+  customer_phone?: string;
   coupon_code?: string;
   checkout_url?: string;
   upi_intent?: string;
@@ -80,6 +82,8 @@ async function startServer() {
         quantity = 1, 
         user_id, 
         user_email, 
+        customer_name,
+        customer_phone,
         coupon_code,
         custom_redirect_url,
         api_key
@@ -121,7 +125,8 @@ async function startServer() {
             order_id: clientOrderId,
             redirect_url: verifyRedirectUrl,
             webhook_url: webhookUrl,
-            customer_name: user_email ? user_email.split('@')[0] : 'Customer',
+            customer_name: customer_name || (user_email ? user_email.split('@')[0] : 'Customer'),
+            customer_mobile: customer_phone || '',
             customer_email: user_email || 'customer@gmail.com'
           }),
           signal: controller.signal
@@ -163,6 +168,8 @@ async function startServer() {
         quantity: Number(quantity) || 1,
         user_id,
         user_email,
+        customer_name,
+        customer_phone,
         coupon_code,
         checkout_url: checkoutUrl,
         upi_intent: upiIntent,
@@ -367,6 +374,17 @@ async function startServer() {
   };
 
   app.all(['/api/fampay/verify-order', '/api/payment/verify-order'], handleVerifyOrder);
+
+  /**
+   * GET ORDER DETAILS (For recovering customer information upon redirect)
+   */
+  app.get(['/api/fampay/get-order', '/api/payment/get-order'], (req: express.Request, res: express.Response) => {
+    const orderId = extractOrderId(req.body, req.query);
+    if (orderId && orders[orderId]) {
+      return res.json({ success: true, order: orders[orderId] });
+    }
+    return res.status(404).json({ success: false, message: 'Order not found' });
+  });
 
   /**
    * 3. ASYNCHRONOUS GATEWAY WEBHOOK (Handles both POST and GET)

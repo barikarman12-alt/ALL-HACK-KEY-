@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
 import { Pricing, PurchaseSuccessPayload } from './components/Pricing';
+import { FAQSection } from './components/FAQSection';
 import { OwnerProfile } from './components/OwnerProfile';
 import { Footer } from './components/Footer';
 import { SupportChat } from './components/SupportChat';
@@ -137,6 +138,10 @@ function AppContent() {
             onPurchaseSuccess={handlePurchaseSuccess} 
             onRequiresLogin={() => navigateTo('login')} 
           />
+          <FAQSection onManageFAQs={() => {
+            window.history.pushState({}, '', '/dashboard?tab=faqs');
+            navigateTo('dashboard');
+          }} />
           <OwnerProfile />
         </main>
       ) : currentPage === 'login' ? (
@@ -148,7 +153,7 @@ function AppContent() {
         </main>
       ) : (
         <main>
-          <Dashboard />
+          <Dashboard onNavigateHome={navigateToHome} />
         </main>
       )}
       

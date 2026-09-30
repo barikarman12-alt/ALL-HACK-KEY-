@@ -12,10 +12,13 @@ import {
   ShoppingBag, 
   CheckCircle2, 
   FileText,
-  Gift
+  Gift,
+  User,
+  MessageCircle,
+  Phone
 } from 'lucide-react';
 import { triggerCelebrationConfetti, playSuccessChime } from '../lib/celebrate';
-import { useInventory, useBalance, resolveProductName, useSpinBalance } from '../store';
+import { store, useInventory, useBalance, resolveProductName, useSpinBalance } from '../store';
 import { useAuth } from '../lib/useAuth';
 import { PurchaseSuccessPayload } from './Pricing';
 import { SpinWheelModal } from './SpinWheelModal';
@@ -99,6 +102,44 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
       } catch (e) {}
     }
 
+    // Try finding order in pendingOrders store or server API if orderMeta is missing
+    if (!orderMeta) {
+      const foundOrder = store.getPendingOrders().find(o => o.orderId === effectiveOrderId);
+      if (foundOrder) {
+        orderMeta = {
+          orderId: foundOrder.orderId,
+          amount: foundOrder.amount,
+          customerName: foundOrder.customerName,
+          customerPhone: foundOrder.customerPhone,
+          productName: foundOrder.productName,
+          durationLabel: foundOrder.durationLabel,
+          userId: foundOrder.userId,
+          userEmail: foundOrder.userEmail
+        };
+      } else {
+        try {
+          const res = await fetch(`/api/fampay/get-order?order_id=${encodeURIComponent(effectiveOrderId)}`);
+          if (res.ok) {
+            const json = await res.json();
+            if (json.order) {
+              orderMeta = {
+                orderId: json.order.order_id,
+                amount: json.order.amount,
+                customerName: json.order.customer_name,
+                customerPhone: json.order.customer_phone,
+                productName: json.order.product_name,
+                durationLabel: json.order.duration_label,
+                durationValue: json.order.duration_value,
+                quantity: json.order.quantity,
+                userId: json.order.user_id,
+                userEmail: json.order.user_email
+              };
+            }
+          }
+        } catch (e) {}
+      }
+    }
+
     const isBalanceDeposit = orderMeta?.type === 'balance' || 
       orderMeta?.productName?.toLowerCase().includes('balance') || 
       orderMeta?.productName?.toLowerCase().includes('wallet');
@@ -106,6 +147,8 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
     const totalPaid = orderMeta?.amount || 40;
     const targetUid = currentUser?.uid || orderMeta?.userId;
     const targetEmail = currentUser?.email || orderMeta?.userEmail;
+    const customerName = orderMeta?.customerName || localStorage.getItem('customer_name') || currentUser?.displayName || '';
+    const customerPhone = orderMeta?.customerPhone || localStorage.getItem('customer_phone') || '';
 
     // Handle wallet balance deposit
     if (isBalanceDeposit) {
@@ -128,6 +171,11 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
         orderId: effectiveOrderId
       };
 
+      store.updatePendingOrderStatus(effectiveOrderId, 'completed', new Date().toISOString(), {
+        customerName,
+        customerPhone
+      });
+
       setOrderDetails(successPayload);
       localStorage.removeItem('pendingPayment');
       playSuccessChime();
@@ -149,7 +197,13 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
           quantity,
           targetUid || 'anonymous',
           targetEmail,
-          { amount: totalPaid, couponCode: couponUsed }
+          { 
+            amount: totalPaid, 
+            couponCode: couponUsed,
+            customerName,
+            customerPhone,
+            orderId: effectiveOrderId
+          }
         );
       } catch (err) {
         console.warn('Inventory fetch note:', err);
@@ -163,6 +217,12 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
 
     setDeliveredKeys(finalKeys);
 
+    store.updatePendingOrderStatus(effectiveOrderId, 'completed', new Date().toISOString(), {
+      deliveredKeys: finalKeys,
+      customerName,
+      customerPhone
+    });
+
     const productNameStr = resolveProductName(orderMeta?.productName || orderMeta?.categoryId, settings.categories, items);
     const successPayload: PurchaseSuccessPayload = {
       keys: finalKeys,
@@ -170,6 +230,8 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
       durationLabel: orderMeta?.durationLabel || 'Instant Access',
       amount: totalPaid,
       couponCode: couponUsed,
+      customerName,
+      customerPhone,
       date: new Date().toISOString(),
       orderId: effectiveOrderId
     };
@@ -306,8 +368,8 @@ Thank you for your purchase!
               </div>
             </div>
 
-            {/* Order Summary Strip */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
+            {/* Order Summary & Customer Info Strip */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
               <div>
                 <span className="text-zinc-400 text-[11px] block">Order ID</span>
                 <span className="font-mono font-bold text-white truncate block">
@@ -315,15 +377,23 @@ Thank you for your purchase!
                 </span>
               </div>
               <div>
-                <span className="text-zinc-400 text-[11px] block">Product</span>
-                <span className="font-semibold text-cyan-300 truncate block">
-                  {orderDetails?.productName || 'VIP License'}
+                <span className="text-zinc-400 text-[11px] block">Customer Name</span>
+                <span className="font-bold text-white truncate block flex items-center gap-1">
+                  <User className="w-3 h-3 text-cyan-400 shrink-0" />
+                  <span>{orderDetails?.customerName || localStorage.getItem('customer_name') || 'Customer'}</span>
                 </span>
               </div>
               <div>
-                <span className="text-zinc-400 text-[11px] block">Duration</span>
-                <span className="font-semibold text-zinc-200 truncate block">
-                  {orderDetails?.durationLabel || 'Active'}
+                <span className="text-zinc-400 text-[11px] block">WhatsApp / Mobile</span>
+                <span className="font-mono font-bold text-emerald-400 truncate block flex items-center gap-1">
+                  <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
+                  <span>{orderDetails?.customerPhone ? `+91 ${orderDetails.customerPhone}` : (localStorage.getItem('customer_phone') ? `+91 ${localStorage.getItem('customer_phone')}` : 'Verified')}</span>
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 text-[11px] block">Product & Duration</span>
+                <span className="font-semibold text-cyan-300 truncate block">
+                  {orderDetails?.productName || 'VIP License'} ({orderDetails?.durationLabel || 'Active'})
                 </span>
               </div>
               <div>
@@ -394,6 +464,19 @@ Thank you for your purchase!
 
             {/* Quick Action Buttons */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              {/* WhatsApp Receipt Share */}
+              {(orderDetails?.customerPhone || localStorage.getItem('customer_phone')) && (
+                <a
+                  href={`https://wa.me/91${(orderDetails?.customerPhone || localStorage.getItem('customer_phone') || '').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Arman X Store Order Confirmation 🎉\n\nOrder ID: ${orderDetails?.orderId || orderId}\nCustomer: ${orderDetails?.customerName || localStorage.getItem('customer_name') || ''}\nVIP License Key:\n${deliveredKeys.join('\n')}\n\nAPK / Updates Channel: ${apkLink}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="py-3 px-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.3)] transition-all cursor-pointer sm:col-span-2"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>Save Receipt & Key to WhatsApp (+91 {orderDetails?.customerPhone || localStorage.getItem('customer_phone')})</span>
+                </a>
+              )}
+
               {/* Telegram Channel Link */}
               <a
                 href={apkLink}

@@ -16,6 +16,8 @@ export default async function handler(req: any, res: any) {
       quantity = 1,
       user_id,
       user_email,
+      customer_name,
+      customer_phone,
       coupon_code,
       custom_redirect_url,
       api_key
@@ -58,7 +60,8 @@ export default async function handler(req: any, res: any) {
           order_id: clientOrderId,
           redirect_url: verifyRedirectUrl,
           webhook_url: webhookUrl,
-          customer_name: user_email ? user_email.split('@')[0] : 'Customer',
+          customer_name: customer_name || (user_email ? user_email.split('@')[0] : 'Customer'),
+          customer_mobile: customer_phone || '',
           customer_email: user_email || 'customer@gmail.com'
         }),
         signal: controller.signal
