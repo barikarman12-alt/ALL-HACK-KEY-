@@ -13,17 +13,17 @@ import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with auto-detect long polling and multi-tab persistence
-// This prevents WebChannel streaming proxy buffering and the 10-second backend timeout
+// Initialize Firestore with experimentalForceLongPolling and multi-tab persistence
+// This prevents WebChannel streaming proxy buffering and the 10-second backend timeout in iframe environments
 function createFirestoreInstance() {
   try {
     return initializeFirestore(
       app,
       {
+        experimentalForceLongPolling: true,
         localCache: persistentLocalCache({
           tabManager: persistentMultipleTabManager()
-        }),
-        experimentalAutoDetectLongPolling: true
+        })
       },
       firebaseConfig.firestoreDatabaseId
     );
@@ -32,7 +32,7 @@ function createFirestoreInstance() {
       return initializeFirestore(
         app,
         {
-          experimentalAutoDetectLongPolling: true
+          experimentalForceLongPolling: true
         },
         firebaseConfig.firestoreDatabaseId
       );

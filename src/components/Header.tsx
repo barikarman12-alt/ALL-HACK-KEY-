@@ -19,7 +19,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
   const [isAddBalanceOpen, setIsAddBalanceOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSpinWheelOpen, setIsSpinWheelOpen] = useState(false);
-  const { currentUser } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const { balance } = useBalance(currentUser?.uid);
   const { settings } = useInventory(currentUser?.uid, currentUser?.email || undefined);
   const { unreadCount } = useNotifications(currentUser?.uid);
@@ -27,20 +27,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
   const { users } = useUsers();
   const { isLight, toggleTheme } = useTheme();
 
-  const isOwner = Boolean(
-    currentUser && (
-      currentUser.email === 'barikarman12@gmail.com' ||
-      currentUser.email === 'barikarman207@gmail.com' ||
-      currentUser.email?.includes('barikarman') || 
-      ['admin', 'owner', 'arman_123', 'barikarman12', 'barikarman207'].includes(currentUser?.customId || '') || 
-      currentUser?.customId?.includes('barikarman') ||
-      (currentUser as any)?.role === 'owner' ||
-      (currentUser as any)?.role === 'admin' ||
-      (settings as any)?.ownerEmail === currentUser.email ||
-      users.find(u => u.uid === currentUser.uid)?.role === 'owner' ||
-      users.find(u => u.uid === currentUser.uid)?.role === 'admin'
-    )
-  );
+  const isOwner = isAdmin;
 
   const handleKeyClick = () => {
     if (onNavigate) {
@@ -256,6 +243,11 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                     <span className="text-xs font-bold text-white leading-tight flex items-center gap-1">
                       {currentUser.displayName || currentUser.customId || 'User'}
                     </span>
+                    {currentUser.email && (
+                      <span className="text-[10px] text-zinc-400 font-mono leading-tight truncate max-w-[140px]">
+                        {currentUser.email}
+                      </span>
+                    )}
                     {isOwner && (
                       <span className="text-[10px] font-extrabold text-amber-400 font-mono leading-none tracking-tight">
                         Super Admin

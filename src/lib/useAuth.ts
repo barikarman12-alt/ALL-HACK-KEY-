@@ -19,7 +19,36 @@ export interface User {
   displayName: string | null;
   customId?: string;
   photoURL?: string | null;
+  role?: 'owner' | 'admin' | 'customer';
 }
+
+export const isUserAdmin = (user: User | null): boolean => {
+  if (!user) return false;
+  if (user.role === 'owner' || user.role === 'admin') return true;
+  const email = (user.email || '').toLowerCase().trim();
+  const customId = (user.customId || '').toLowerCase().trim();
+  
+  if (
+    email === 'barikarman12@gmail.com' ||
+    email === 'barikarman207@gmail.com' ||
+    email.includes('barikarman') ||
+    ['admin', 'owner', 'arman_123', 'barikarman12', 'barikarman207'].includes(customId) ||
+    customId.includes('barikarman')
+  ) {
+    return true;
+  }
+
+  // Check store registered users role
+  try {
+    const registry = store.getUsers();
+    const found = registry.find(u => u.uid === user.uid || (u.email && u.email.toLowerCase() === email));
+    if (found && (found.role === 'owner' || found.role === 'admin')) {
+      return true;
+    }
+  } catch (e) {}
+
+  return false;
+};
 
 const loadSavedCustomUser = (): User | null => {
   try {
@@ -41,6 +70,9 @@ export const notifyAuthListeners = (user: User | null) => {
 export function useAuth() {
   const [currentUser, setCurrentUser] = useState<User | null>(cachedUser || loadSavedCustomUser());
   const [loading, setLoading] = useState(!hasAuthResolved);
+
+  const isAdmin = Boolean(currentUser && isUserAdmin(currentUser));
+  const isAuthenticated = Boolean(currentUser && currentUser.uid);
 
   useEffect(() => {
     let mounted = true;
@@ -65,7 +97,8 @@ export function useAuth() {
           email: user.email,
           displayName,
           customId,
-          photoURL: user.photoURL || null
+          photoURL: user.photoURL || null,
+          role
         };
         cachedUser = userObj;
         setCurrentUser(userObj);
@@ -102,7 +135,13 @@ export function useAuth() {
     };
   }, []);
 
-  return { currentUser, loading };
+  return { 
+    currentUser, 
+    loading, 
+    isAdmin, 
+    isOwner: isAdmin, 
+    isAuthenticated 
+  };
 }
 
 export const logOutMock = async () => {
@@ -339,4 +378,27 @@ export const resetPassword = async (email: string) => {
   } catch (error: any) {
     throw { code: error.code, message: error.message || 'Failed to send password reset email.' };
   }
+};
+
+export const loginAsGuest = async () => {
+  const guestId = 'guest_' + Math.random().toString(36).substring(2, 9);
+  const guestUser: User = {
+    uid: guestId,
+    email: null,
+    displayName: 'Guest Member',
+    customId: guestId
+  };
+  cachedUser = guestUser;
+  localStorage.setItem('auth_custom_user', JSON.stringify(guestUser));
+  notifyAuthListeners(guestUser);
+  await store.registerOrUpdateUser({
+    uid: guestId,
+    email: '',
+    displayName: 'Guest Member',
+    customId: guestId,
+    role: 'customer',
+    createdAt: new Date().toISOString(),
+    lastLoginAt: new Date().toISOString()
+  });
+  return guestUser;
 };

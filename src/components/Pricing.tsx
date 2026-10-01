@@ -1,5 +1,6 @@
-import { Check, X, Minus, Plus, Loader2, Key, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users, ArrowRight, ShieldCheck, Zap, User, Phone, MessageCircle } from 'lucide-react';
+import { Check, X, Minus, Plus, Loader2, Key, Copy, Wallet, Search, Tag, Sparkles, AlertCircle, Clock, Users, ArrowRight, ShieldCheck, Zap, User, Phone, MessageCircle, Mail } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { FastAverageColor } from 'fast-average-color';
 import { useInventory, useBalance, useCoupons, Coupon, getCouponRemainingTime, resolveProductName } from '../store';
@@ -19,6 +20,7 @@ export interface PurchaseSuccessPayload {
   orderId?: string;
   customerName?: string;
   customerPhone?: string;
+  customerEmail?: string;
 }
 
 interface PricingProps {
@@ -43,7 +45,7 @@ const playSuccessSound = () => {
       
       gain.gain.setValueAtTime(0, ctx.currentTime + delay);
       gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + delay + 0.05);
-      gain.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + duration - 0.05);
+      gain.gain.linearRampToValueAtTime(0.1, ctx.currentTime + delay + duration - 0.05);
       gain.gain.linearRampToValueAtTime(0, ctx.currentTime + delay + duration);
       
       osc.start(ctx.currentTime + delay);
@@ -57,7 +59,7 @@ const playSuccessSound = () => {
   }
 };
 
-const ProductCard = ({ category, pricingOptions, openPurchaseModal }: any) => {
+const ProductCard = ({ category, pricingOptions, openPurchaseModal, index = 0 }: any) => {
   const categoryPrices = pricingOptions
     .filter((p: any) => p.category === category.id)
     .sort((a: any, b: any) => a.price - b.price);
@@ -68,9 +70,21 @@ const ProductCard = ({ category, pricingOptions, openPurchaseModal }: any) => {
     .some((p: any) => p.stock > 0);
 
   return (
-    <div 
+    <motion.div 
       key={category.id} 
-      className="group relative bg-[#121215]/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-white/10 hover:border-white/20 transition-all duration-300 flex flex-col justify-between overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.5)] theme-card"
+      initial={{ opacity: 0, y: 32, scale: 0.94 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95 }}
+      transition={{ 
+        duration: 0.5, 
+        delay: Math.min(index * 0.09, 0.45),
+        ease: [0.16, 1, 0.3, 1] 
+      }}
+      whileHover={{ 
+        y: -6,
+        transition: { duration: 0.25, ease: 'easeOut' }
+      }}
+      className="group relative bg-[#121215]/80 backdrop-blur-xl rounded-2xl sm:rounded-3xl border border-white/10 hover:border-indigo-500/40 hover:shadow-[0_15px_35px_rgba(99,102,241,0.2)] transition-colors duration-300 flex flex-col justify-between overflow-hidden shadow-[0_10px_30px_rgba(0,0,0,0.5)] theme-card"
     >
       {category.popular && (
         <div className="absolute top-3 right-3 text-[10px] sm:text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider bg-white/10 text-white border border-white/15 backdrop-blur-md z-10 theme-pill">
@@ -142,7 +156,7 @@ const ProductCard = ({ category, pricingOptions, openPurchaseModal }: any) => {
           </button>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -171,7 +185,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
   const [couponError, setCouponError] = useState('');
 
-  // Customer Contact Details
+  // Customer Contact & Delivery Details
+  const [customerEmail, setCustomerEmail] = useState(() => {
+    return localStorage.getItem('customer_email') || currentUser?.email || '';
+  });
   const [customerName, setCustomerName] = useState(() => {
     return localStorage.getItem('customer_name') || currentUser?.displayName || '';
   });
@@ -180,6 +197,9 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   });
 
   useEffect(() => {
+    if (currentUser?.email && !customerEmail) {
+      setCustomerEmail(currentUser.email);
+    }
     if (currentUser?.displayName && !customerName) {
       setCustomerName(currentUser.displayName);
     }
@@ -297,6 +317,9 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     setAppliedCoupon(null);
     setCouponInput('');
     setCouponError('');
+    if (currentUser?.email && !customerEmail) {
+      setCustomerEmail(currentUser.email);
+    }
   };
 
   const closePurchaseModal = () => {
@@ -314,12 +337,9 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     }
   };
 
-  /**
-   * INLINE / POPUP FAMGATEWAY CHECKOUT:
-   * 1. Call Backend API to generate payment session/order.
-   * 2. Receive checkout_url and open Fam Gateway in popup modal right on the site.
-   * 3. No external redirect - auto-verifies and delivers keys upon completion!
-   */
+  const effectiveEmail = customerEmail.trim() || currentUser?.email || undefined;
+  const effectiveName = customerName.trim() || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'VIP Customer';
+
   const handleProceedDirectRedirect = async () => {
     setPaymentError('');
     setPaymentStep('redirecting');
@@ -332,8 +352,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         durationValue: selectedDuration?.value,
         quantity: quantity,
         userId: currentUser?.uid,
-        userEmail: currentUser?.email,
-        customerName: customerName.trim() || currentUser?.displayName || currentUser?.email?.split('@')[0] || 'VIP Customer',
+        userEmail: effectiveEmail,
+        customerName: effectiveName,
         customerPhone: customerPhone.trim() || undefined,
         couponCode: appliedCoupon?.code
       });
@@ -345,8 +365,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         type: 'keys',
         amount: totalPrice,
         userId: currentUser?.uid,
-        userEmail: currentUser?.email,
-        customerName: customerName.trim() || undefined,
+        userEmail: effectiveEmail,
+        customerName: effectiveName,
         customerPhone: customerPhone.trim() || undefined,
         productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
         categoryId: selectedProduct,
@@ -380,11 +400,11 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         selectedDuration?.value,
         quantity,
         currentUser?.uid || 'anonymous',
-        currentUser?.email || undefined,
+        effectiveEmail,
         { 
           amount: totalPrice, 
           couponCode: appliedCoupon?.code,
-          customerName: customerName.trim() || undefined,
+          customerName: effectiveName,
           customerPhone: customerPhone.trim() || undefined,
           orderId: paymentData.orderId
         }
@@ -397,8 +417,9 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         amount: totalPrice,
         couponCode: appliedCoupon?.code,
         orderId: paymentData.orderId,
-        customerName: customerName.trim() || undefined,
+        customerName: effectiveName,
         customerPhone: customerPhone.trim() || undefined,
+        customerEmail: effectiveEmail,
         date: new Date().toISOString()
       };
 
@@ -434,8 +455,13 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           selectedDuration?.value, 
           quantity, 
           currentUser.uid, 
-          currentUser.email || undefined,
-          { amount: totalPrice, couponCode: appliedCoupon?.code }
+          effectiveEmail,
+          { 
+            amount: totalPrice, 
+            couponCode: appliedCoupon?.code,
+            customerName: effectiveName,
+            customerPhone: customerPhone.trim() || undefined
+          }
         );
 
         if (keys.length < quantity && currentUser?.uid) {
@@ -447,7 +473,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
             referenceId: `part_ref_${Date.now()}`,
             note: `Auto-refund for ${missingCount} unfulfilled key(s)`,
             type: 'refund',
-            userEmail: currentUser.email || undefined
+            userEmail: effectiveEmail
           });
         }
 
@@ -465,6 +491,9 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           durationLabel: selectedDuration?.label || '',
           amount: totalPrice,
           couponCode: appliedCoupon?.code,
+          customerName: effectiveName,
+          customerPhone: customerPhone.trim() || undefined,
+          customerEmail: effectiveEmail,
           date: new Date().toISOString()
         };
         localStorage.setItem('latestReceivedKey', JSON.stringify(payload));
@@ -492,8 +521,26 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     <section id="pricing" className="py-6 sm:py-10 relative">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
+        {/* Storewide Live Announcement Banner */}
+        {settings?.announcementEnabled !== false && settings?.announcementText && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="max-w-3xl mx-auto mb-6 p-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500/15 via-indigo-500/10 to-amber-500/15 border border-amber-500/30 text-amber-200 text-xs sm:text-sm font-medium flex items-center justify-center gap-2.5 shadow-[0_0_25px_rgba(245,158,11,0.12)] text-center backdrop-blur-md"
+          >
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block shrink-0" />
+            <span className="font-semibold text-amber-300">Announcement:</span>
+            <span>{settings.announcementText}</span>
+          </motion.div>
+        )}
+
         {/* Sleek Pill-Shaped Search Header */}
-        <div className="max-w-3xl mx-auto mb-8 relative">
+        <motion.div 
+          initial={{ opacity: 0, y: -16, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.45, ease: [0.16, 1, 0.3, 1] }}
+          className="max-w-3xl mx-auto mb-8 relative"
+        >
           <div className="relative group">
             <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
               <Search className="h-4 w-4 text-zinc-500 group-focus-within:text-zinc-300 transition-colors" />
@@ -506,28 +553,47 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
               className="block w-full pl-10 pr-4 py-3 bg-[#121215]/80 border border-white/10 rounded-full leading-5 text-zinc-100 placeholder-zinc-500 focus:outline-none focus:border-white/20 focus:ring-1 focus:ring-white/20 transition-all text-xs sm:text-sm shadow-[0_4px_20px_rgba(0,0,0,0.4)] backdrop-blur-md theme-input"
             />
           </div>
-        </div>
+        </motion.div>
 
-        {/* Categories Grid */}
+        {/* Categories Grid with Staggered Entrance */}
         {(!isInitialized && filteredCategories.length === 0) ? (
           <ProductGridSkeleton count={4} />
         ) : filteredCategories.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-6 max-w-4xl mx-auto">
-            {filteredCategories.map((category) => (
+          <motion.div 
+            layout
+            initial="hidden"
+            animate="show"
+            variants={{
+              hidden: { opacity: 0 },
+              show: {
+                opacity: 1,
+                transition: {
+                  staggerChildren: 0.08
+                }
+              }
+            }}
+            className="grid grid-cols-2 gap-3 sm:gap-6 max-w-4xl mx-auto"
+          >
+            {filteredCategories.map((category, idx) => (
               <ProductCard 
                 key={category.id} 
                 category={category} 
+                index={idx}
                 pricingOptions={pricingOptions} 
                 openPurchaseModal={openPurchaseModal} 
               />
             ))}
-          </div>
+          </motion.div>
         ) : (
-          <div className="max-w-3xl mx-auto text-center py-12 bg-zinc-900/30 rounded-3xl border border-zinc-800/50 theme-card">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="max-w-3xl mx-auto text-center py-12 bg-zinc-900/30 rounded-3xl border border-zinc-800/50 theme-card"
+          >
             <Search className="h-10 w-10 text-zinc-600 mx-auto mb-3" />
             <h3 className="text-base font-medium text-zinc-300 mb-1 theme-text-title">No products found</h3>
             <p className="text-xs text-zinc-500 theme-text-sub">We couldn't find anything matching "{searchQuery}".</p>
-          </div>
+          </motion.div>
         )}
       </div>
 
@@ -535,10 +601,10 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       {selectedProduct && (
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="absolute inset-0 bg-black/80 backdrop-blur-md" onClick={closePurchaseModal}></div>
-          <div className="relative bg-[#121214] border border-zinc-800/80 shadow-[0_20px_60px_rgba(0,0,0,0.8)] rounded-3xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 theme-modal">
+          <div className="relative bg-[#121214] border border-zinc-800/80 shadow-[0_20px_60px_rgba(0,0,0,0.8)] rounded-3xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200 theme-modal max-h-[92vh] flex flex-col">
             
             {/* Header */}
-            <div className="flex justify-between items-start p-6 pb-4 border-b border-zinc-800/60 theme-modal-section">
+            <div className="flex justify-between items-start p-6 pb-4 border-b border-zinc-800/60 theme-modal-section shrink-0">
               <div>
                 <p className="text-[11px] font-medium text-zinc-500 uppercase tracking-widest mb-0.5 theme-text-sub">Instant Shop Maker</p>
                 <h3 className="text-2xl font-bold text-zinc-100 font-display tracking-tight theme-text-title">
@@ -558,8 +624,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
             </div>
             
             {paymentStep === 'configure' && (
-              <>
-                <div className="p-6 space-y-6">
+              <div className="overflow-y-auto flex-1 flex flex-col justify-between">
+                <div className="p-6 space-y-5">
                   {/* Selected Product */}
                   <div>
                     <p className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider mb-1">SELECTED PRODUCT</p>
@@ -645,6 +711,70 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                     </div>
                   </div>
 
+                  {/* Customer Identity & Gmail ID Delivery Details */}
+                  <div className="pt-3 border-t border-zinc-800/60 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-zinc-400 uppercase tracking-wider">
+                        <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                        Customer Gmail & Contact Info
+                      </label>
+                      <span className="text-[10px] text-emerald-400 font-medium bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                        Delivery to Gmail
+                      </span>
+                    </div>
+
+                    {/* Customer Gmail Address */}
+                    <div className="relative">
+                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                        <Mail className="w-3.5 h-3.5 text-indigo-400" />
+                      </div>
+                      <input
+                        type="email"
+                        value={customerEmail}
+                        onChange={(e) => {
+                          setCustomerEmail(e.target.value);
+                          localStorage.setItem('customer_email', e.target.value);
+                        }}
+                        placeholder="Enter Customer Gmail / Email ID (e.g. user@gmail.com)"
+                        className="w-full bg-[#17171a] border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 font-mono"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Customer Name */}
+                      <div>
+                        <input
+                          type="text"
+                          value={customerName}
+                          onChange={(e) => {
+                            setCustomerName(e.target.value);
+                            localStorage.setItem('customer_name', e.target.value);
+                          }}
+                          placeholder="Your Name (Optional)"
+                          className="w-full bg-[#17171a] border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500"
+                        />
+                      </div>
+
+                      {/* WhatsApp Phone */}
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                          <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                        </div>
+                        <input
+                          type="tel"
+                          value={customerPhone}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^0-9]/g, '').slice(0, 10);
+                            setCustomerPhone(val);
+                            localStorage.setItem('customer_phone', val);
+                          }}
+                          placeholder="WhatsApp (10 digits)"
+                          className="w-full bg-[#17171a] border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-indigo-500 font-mono"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Apply Coupon Code */}
                   <div className="pt-2 border-t border-zinc-800/60">
                     <div className="flex items-center justify-between mb-2">
@@ -717,7 +847,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                 </div>
                 
                 {/* Summary & Direct Action */}
-                <div className="p-6 bg-[#17171a] border-t border-zinc-800/80 flex flex-col gap-4">
+                <div className="p-6 bg-[#17171a] border-t border-zinc-800/80 flex flex-col gap-4 shrink-0">
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">TOTAL AMOUNT</p>
@@ -766,7 +896,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                     )}
                   </div>
                 </div>
-              </>
+              </div>
             )}
 
             {paymentStep === 'redirecting' && (
@@ -847,3 +977,4 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     </section>
   );
 }
+

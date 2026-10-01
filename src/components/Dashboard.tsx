@@ -61,11 +61,15 @@ import {
   ArrowDown,
   Layers,
   MessageSquareQuote,
-  Send
+  Send,
+  ShieldAlert
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, Coupon, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
 import { testFamApiKeyConnection, verifyFamGatewayOrder, DEFAULT_FAM_API_KEY } from '../lib/famPay';
+import { useAuth } from '../lib/useAuth';
+import { Helmet } from './Helmet';
+import { TableSkeleton, ButtonSpinner, DashboardOverviewSkeleton, LoadingOverlay } from './Skeletons';
 
 export interface DashboardProps {
   initialTab?: string;
@@ -73,6 +77,8 @@ export interface DashboardProps {
 }
 
 export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
+  const { isAdmin, isOwner, loading: authLoading } = useAuth();
+
   const [activeTab, setActiveTab] = useState(() => {
     if (initialTab) return initialTab;
     try {
@@ -82,6 +88,27 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     } catch {}
     return 'menu';
   });
+
+  if (!authLoading && !isAdmin && !isOwner) {
+    return (
+      <div className="min-h-screen bg-[#09090b] text-white flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 rounded-3xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 mb-4 shadow-[0_0_30px_rgba(244,63,94,0.3)]">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-2xl font-bold font-display text-white mb-2">Access Denied (403 Forbidden)</h2>
+        <p className="text-zinc-400 text-sm max-w-md mb-6">
+          This administrative dashboard is restricted to verified store owners only. Your account does not have administrator privileges.
+        </p>
+        <button
+          type="button"
+          onClick={onNavigateHome}
+          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm rounded-xl transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)] cursor-pointer"
+        >
+          Return to Store
+        </button>
+      </div>
+    );
+  }
 
   const handleSelectTab = (tab: string) => {
     setActiveTab(tab);
@@ -1207,12 +1234,29 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     },
   ];
 
+  const [keysFeedbackMsg, setKeysFeedbackMsg] = useState<{ [key: string]: string }>({});
+
   const handleAddKeys = (value: string) => {
     const text = newKeysInput[value] || '';
     const keysArray = text.split('\n').map(k => k.trim()).filter(k => k.length > 0);
     if (keysArray.length > 0) {
-      addKeys(value, keysArray);
-      setNewKeysInput({ ...newKeysInput, [value]: '' });
+      const res = addKeys(value, keysArray);
+      let msg = `✅ Added ${res.addedCount} new unique keys!`;
+      if (res.usedCount > 0) {
+        msg += ` ⚠️ Skipped ${res.usedCount} keys (Already sold previously - 1 key is never provided 2 times!)`;
+      }
+      if (res.duplicateCount > 0) {
+        msg += ` (${res.duplicateCount} duplicates ignored)`;
+      }
+      setKeysFeedbackMsg(prev => ({ ...prev, [value]: msg }));
+      setNewKeysInput(prev => ({ ...prev, [value]: '' }));
+      setTimeout(() => {
+        setKeysFeedbackMsg(prev => {
+          const copy = { ...prev };
+          delete copy[value];
+          return copy;
+        });
+      }, 6000);
     }
   };
 
@@ -1229,6 +1273,10 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
   const [draftCategories, setDraftCategories] = useState(settings.categories);
   const [draftSiteName, setDraftSiteName] = useState(settings.siteName || 'ARMAN X STORE');
   const [draftSiteLogoUrl, setDraftSiteLogoUrl] = useState(settings.siteLogoUrl || '/logo.png');
+  const [draftAnnouncementText, setDraftAnnouncementText] = useState(settings.announcementText || '⚡ Flash Sale Live: Instant UPI Delivery 24/7. Use coupon VIP20 for special discounts!');
+  const [draftAnnouncementEnabled, setDraftAnnouncementEnabled] = useState(settings.announcementEnabled !== false);
+  const [draftWhatsappSupport, setDraftWhatsappSupport] = useState(settings.whatsappSupportNumber || '919876543210');
+  const [draftTelegramSupport, setDraftTelegramSupport] = useState(settings.supportTelegramUsername || 'FATHERXSIR');
   const [hasChanges, setHasChanges] = useState(false);
 
   // Sync drafts with global settings if no unsaved changes
@@ -1237,6 +1285,10 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
       setDraftCategories(settings.categories);
       setDraftSiteName(settings.siteName || 'ARMAN X STORE');
       setDraftSiteLogoUrl(settings.siteLogoUrl || '/logo.png');
+      setDraftAnnouncementText(settings.announcementText || '⚡ Flash Sale Live: Instant UPI Delivery 24/7. Use coupon VIP20 for special discounts!');
+      setDraftAnnouncementEnabled(settings.announcementEnabled !== false);
+      setDraftWhatsappSupport(settings.whatsappSupportNumber || '919876543210');
+      setDraftTelegramSupport(settings.supportTelegramUsername || 'FATHERXSIR');
     }
   }, [settings, hasChanges]);
 
@@ -1244,7 +1296,11 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     updateSettings({ 
       categories: draftCategories,
       siteName: draftSiteName,
-      siteLogoUrl: draftSiteLogoUrl
+      siteLogoUrl: draftSiteLogoUrl,
+      announcementText: draftAnnouncementText.trim(),
+      announcementEnabled: draftAnnouncementEnabled,
+      whatsappSupportNumber: draftWhatsappSupport.trim(),
+      supportTelegramUsername: draftTelegramSupport.trim().replace(/^@/, '')
     });
     setHasChanges(false);
   };
@@ -1253,8 +1309,57 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     setDraftCategories(settings.categories);
     setDraftSiteName(settings.siteName || 'ARMAN X STORE');
     setDraftSiteLogoUrl(settings.siteLogoUrl || '/logo.png');
+    setDraftAnnouncementText(settings.announcementText || '');
+    setDraftAnnouncementEnabled(settings.announcementEnabled !== false);
+    setDraftWhatsappSupport(settings.whatsappSupportNumber || '');
+    setDraftTelegramSupport(settings.supportTelegramUsername || '');
     setHasChanges(false);
     setDeleteCategoryConfirmId(null);
+  };
+
+  // Full Store Database Backup Export (JSON)
+  const handleExportStoreBackupJSON = () => {
+    const backupData = {
+      app: 'Arman X Store',
+      version: '2.0',
+      exportedAt: new Date().toISOString(),
+      storeName: settings.siteName || 'Arman X Store',
+      settings,
+      inventory: inventory.map(item => ({
+        category: item.category,
+        label: item.label,
+        value: item.value,
+        price: item.price,
+        stock: item.stock,
+        keys: item.keys || []
+      })),
+      coupons,
+      purchases,
+      pendingOrders: allPendingOrders,
+      walletTransactions: allWalletTransactions,
+      faqs,
+      users: users.map(u => ({
+        uid: u.uid,
+        email: u.email,
+        displayName: u.displayName,
+        phone: u.phone,
+        balance: u.balance,
+        role: u.role,
+        createdAt: u.createdAt
+      }))
+    };
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `arman-x-store-backup-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setCsvExportSuccessMsg('✅ Full store database backup downloaded as JSON file!');
+    setTimeout(() => setCsvExportSuccessMsg(''), 4500);
   };
 
   const handleCreateProduct = () => {
@@ -1379,8 +1484,16 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     setCouponFormError('');
   };
 
+  const dashboardTabTitle = activeTab && activeTab !== 'menu'
+    ? `Dashboard (${activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}) - ${settings?.siteName || 'Arman X Store'}`
+    : `Dashboard - ${settings?.siteName || 'Arman X Store'}`;
+
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 pt-20 transition-colors duration-300 theme-section">
+      <Helmet 
+        title={dashboardTabTitle}
+        description={`${settings?.siteName || 'Arman X Store'} Administrator Dashboard: Live sales tracker, license inventory, user accounts, and bookkeeping.`}
+      />
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         
         {activeTab === 'menu' ? (
@@ -1620,38 +1733,103 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                 </div>
               </div>
 
-              {/* Quick Inventory Overview */}
-              <div className="bg-zinc-900 rounded-2xl border border-zinc-800 shadow-[0_0_15px_rgba(224,0,255,0.05)] overflow-hidden flex flex-col">
-                <div className="px-6 py-5 border-b border-zinc-800 flex justify-between items-center">
-                  <h2 className="text-lg font-bold text-white drop-shadow-[0_0_5px_rgba(255,255,255,0.3)]">Live Inventory</h2>
-                  <Activity className="w-5 h-5 text-zinc-500" />
-                </div>
-                <div className="p-6 flex-1 flex flex-col justify-between overflow-y-auto max-h-96">
-                  <div className="space-y-6">
-                    {settings.categories.map(category => (
-                      <div key={category.id}>
-                        <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">{category.name}</h3>
-                        <div className="space-y-4">
-                          {inventory.filter(i => i.category === category.id).map((item, i) => (
-                            <div key={i} className="flex justify-between items-center bg-zinc-950/50 p-3 rounded-xl border border-zinc-800/50 hover:border-fuchsia-500/20 hover:shadow-[0_0_10px_rgba(224,0,255,0.05)] transition-all">
-                              <div>
-                                <div className="text-sm font-bold text-white">{item.label}</div>
-                                <div className="text-xs text-zinc-500">Mon, Wed, Fri</div>
-                              </div>
-                              <div className="text-right">
-                                <div className={`text-sm font-bold ${item.stock > 0 ? 'text-green-400 drop-shadow-[0_0_3px_rgba(74,222,128,0.5)]' : 'text-red-400 drop-shadow-[0_0_3px_rgba(248,113,113,0.5)]'}`}>
-                                  {item.stock > 0 ? `${item.stock} in stock` : 'Out of Stock'}
-                                </div>
-                                <div className="text-xs text-zinc-400">₹{item.price}</div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
+              {/* Real-time Inventory & Stock Alerts */}
+              <div className="bg-[#121215]/90 rounded-2xl border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.3)] overflow-hidden flex flex-col backdrop-blur-xl theme-card">
+                <div className="px-6 py-5 border-b border-white/10 flex justify-between items-center shrink-0 theme-modal-section">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                      <Package className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-white theme-text-title">Live Key Inventory</h2>
+                      <p className="text-[11px] text-zinc-400 theme-text-sub">Real-time stock levels & automatic replenishment</p>
+                    </div>
                   </div>
-                  <button onClick={() => setActiveTab('inventory')} className="w-full mt-6 py-2.5 bg-zinc-950 hover:bg-zinc-800 text-fuchsia-400 text-sm font-semibold rounded-xl border border-zinc-800 transition-colors shrink-0 shadow-[0_0_10px_rgba(224,0,255,0.05)]">
-                    Manage Stock Levels
+                  <button 
+                    onClick={() => setActiveTab('inventory')}
+                    className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <span>Manage All</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="p-5 flex-1 flex flex-col justify-between overflow-y-auto max-h-96 space-y-5">
+                  <div className="space-y-5">
+                    {settings.categories.map(category => {
+                      const catItems = inventory.filter(i => i.category === category.id);
+                      if (catItems.length === 0) return null;
+
+                      return (
+                        <div key={category.id} className="space-y-2.5">
+                          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-wider flex items-center justify-between">
+                            <span>{category.name}</span>
+                            <span className="text-[10px] text-zinc-500 lowercase font-normal">{catItems.length} plans</span>
+                          </h3>
+                          <div className="space-y-2">
+                            {catItems.map((item, i) => {
+                              const isLow = item.stock > 0 && item.stock <= 3;
+                              const isOut = item.stock === 0;
+
+                              return (
+                                <div 
+                                  key={i} 
+                                  className="flex justify-between items-center bg-black/40 p-3 rounded-xl border border-white/5 hover:border-indigo-500/30 transition-all group"
+                                >
+                                  <div>
+                                    <div className="text-sm font-bold text-white group-hover:text-indigo-300 transition-colors flex items-center gap-2">
+                                      <span>{item.label}</span>
+                                      {isOut && (
+                                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                                          EMPTY
+                                        </span>
+                                      )}
+                                      {isLow && (
+                                        <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                          LOW
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-xs text-zinc-400 font-mono">
+                                      ₹{item.price} • {item.stock} keys in stock
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2.5">
+                                    <span className={`text-xs font-bold px-2 py-0.5 rounded-lg border ${
+                                      isOut 
+                                        ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' 
+                                        : isLow 
+                                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' 
+                                        : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                                    }`}>
+                                      {item.stock > 0 ? `${item.stock} Available` : 'Out of Stock'}
+                                    </span>
+                                    <button
+                                      onClick={() => {
+                                        setActiveTab('inventory');
+                                        setManageKeysProduct(item.value);
+                                      }}
+                                      className="p-1.5 bg-indigo-600/20 hover:bg-indigo-600 text-indigo-300 hover:text-white rounded-lg border border-indigo-500/30 transition-all text-xs font-bold cursor-pointer"
+                                      title={`Restock ${item.label}`}
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <button 
+                    onClick={() => setActiveTab('inventory')} 
+                    className="w-full mt-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(99,102,241,0.3)] flex items-center justify-center gap-2 cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Manage & Restock Licenses</span>
                   </button>
                 </div>
               </div>
@@ -1687,56 +1865,64 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                               </span>
                             </td>
                             <td className="py-4 px-6 text-right">
-                              <div className="flex items-start justify-end space-x-2">
-                                <textarea
-                                  rows={1}
-                                  value={newKeysInput[item.value] || ''}
-                                  onChange={(e) => setNewKeysInput({...newKeysInput, [item.value]: e.target.value})}
-                                  placeholder="Paste keys (1/line)"
-                                  className="w-48 px-3 py-2 bg-zinc-950 text-white placeholder-zinc-600 border border-zinc-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:border-fuchsia-500 focus:ring-fuchsia-500/20 resize-y min-h-[38px]"
-                                />
-                                <button
-                                  onClick={() => handleAddKeys(item.value)}
-                                  disabled={!newKeysInput[item.value]?.trim()}
-                                  className="px-4 py-2 bg-fuchsia-600 text-white text-sm font-medium rounded-lg hover:bg-fuchsia-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_10px_rgba(224,0,255,0.3)] shrink-0 h-[38px]"
-                                >
-                                  Add Keys
-                                </button>
-                                <button
-                                  onClick={() => setManageKeysProduct(item.value)}
-                                  className="px-4 py-2 bg-zinc-800 text-white text-sm font-medium rounded-lg hover:bg-zinc-700 transition-colors shadow-[0_0_10px_rgba(255,255,255,0.05)] shrink-0 h-[38px]"
-                                >
-                                  Manage Keys
-                                </button>
-                                {deleteProductConfirmId === item.value ? (
-                                  <div className="flex flex-col items-end gap-1 ml-2">
-                                    <span className="text-xs text-zinc-400">Are you sure?</span>
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        onClick={() => {
-                                          deleteProduct(item.value);
-                                          setDeleteProductConfirmId(null);
-                                        }}
-                                        className="px-2 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-xs transition-colors"
-                                      >
-                                        Yes
-                                      </button>
-                                      <button
-                                        onClick={() => setDeleteProductConfirmId(null)}
-                                        className="px-2 py-1 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-xs transition-colors"
-                                      >
-                                        No
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
+                              <div className="flex flex-col items-end gap-1.5">
+                                <div className="flex items-center justify-end space-x-2">
+                                  <textarea
+                                    rows={1}
+                                    value={newKeysInput[item.value] || ''}
+                                    onChange={(e) => setNewKeysInput({...newKeysInput, [item.value]: e.target.value})}
+                                    placeholder="Paste keys (1/line)"
+                                    className="w-48 px-3 py-2 bg-zinc-950 text-white placeholder-zinc-600 border border-zinc-800 rounded-lg text-sm focus:outline-none focus:ring-2 focus:border-indigo-500 focus:ring-indigo-500/20 resize-y min-h-[38px]"
+                                  />
                                   <button
-                                    onClick={() => setDeleteProductConfirmId(item.value)}
-                                    className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors ml-2"
-                                    title="Delete Product"
+                                    onClick={() => handleAddKeys(item.value)}
+                                    disabled={!newKeysInput[item.value]?.trim()}
+                                    className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_0_10px_rgba(99,102,241,0.3)] shrink-0 h-[38px] cursor-pointer"
                                   >
-                                    <Trash2 className="w-5 h-5" />
+                                    Add Keys
                                   </button>
+                                  <button
+                                    onClick={() => setManageKeysProduct(item.value)}
+                                    className="px-4 py-2 bg-zinc-800 text-white text-sm font-semibold rounded-lg hover:bg-zinc-700 transition-colors shadow-[0_0_10px_rgba(255,255,255,0.05)] shrink-0 h-[38px] cursor-pointer"
+                                  >
+                                    Manage Keys
+                                  </button>
+
+                                  {deleteProductConfirmId === item.value ? (
+                                    <div className="flex flex-col items-end gap-1 ml-2">
+                                      <span className="text-xs text-zinc-400">Are you sure?</span>
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => {
+                                            deleteProduct(item.value);
+                                            setDeleteProductConfirmId(null);
+                                          }}
+                                          className="px-2 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-xs transition-colors"
+                                        >
+                                          Yes
+                                        </button>
+                                        <button
+                                          onClick={() => setDeleteProductConfirmId(null)}
+                                          className="px-2 py-1 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 rounded text-xs transition-colors"
+                                        >
+                                          No
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => setDeleteProductConfirmId(item.value)}
+                                      className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors ml-2"
+                                      title="Delete Product"
+                                    >
+                                      <Trash2 className="w-5 h-5" />
+                                    </button>
+                                  )}
+                                </div>
+                                {keysFeedbackMsg[item.value] && (
+                                  <div className="text-[11px] font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2.5 py-1 rounded-lg animate-in fade-in max-w-sm text-right">
+                                    {keysFeedbackMsg[item.value]}
+                                  </div>
                                 )}
                               </div>
                             </td>
@@ -1911,6 +2097,116 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                 </div>
               ))}
 
+              {/* Broadcast Announcement Banner Setting */}
+              <div className="p-5 bg-[#121215]/90 border border-white/10 rounded-2xl space-y-4 backdrop-blur-xl theme-card">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                      <Bell className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white">Storewide Announcement Banner</h4>
+                      <p className="text-xs text-zinc-400">Broadcast discounts, news or alert ticker to all customers on the store</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDraftAnnouncementEnabled(!draftAnnouncementEnabled);
+                      setHasChanges(true);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                      draftAnnouncementEnabled
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                        : 'bg-zinc-800 text-zinc-400 border-zinc-700'
+                    }`}
+                  >
+                    {draftAnnouncementEnabled ? 'Active / Visible' : 'Hidden'}
+                  </button>
+                </div>
+                
+                <div>
+                  <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Announcement Ticker Text</label>
+                  <input
+                    type="text"
+                    value={draftAnnouncementText}
+                    onChange={(e) => {
+                      setDraftAnnouncementText(e.target.value);
+                      setHasChanges(true);
+                    }}
+                    placeholder="e.g. ⚡ Flash Sale Live: Instant UPI Delivery 24/7. Use coupon VIP20 for special discounts!"
+                    className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-amber-500 transition-colors"
+                  />
+                </div>
+              </div>
+
+              {/* Customer Support Channels */}
+              <div className="p-5 bg-[#121215]/90 border border-white/10 rounded-2xl space-y-4 backdrop-blur-xl theme-card">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <MessageCircle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Direct Support Channels</h4>
+                    <p className="text-xs text-zinc-400">Configure your official WhatsApp & Telegram support links</p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-400 mb-1.5">WhatsApp Number (with country code)</label>
+                    <input
+                      type="text"
+                      value={draftWhatsappSupport}
+                      onChange={(e) => {
+                        setDraftWhatsappSupport(e.target.value);
+                        setHasChanges(true);
+                      }}
+                      placeholder="919876543210"
+                      className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-zinc-400 mb-1.5">Telegram Username (without @)</label>
+                    <input
+                      type="text"
+                      value={draftTelegramSupport}
+                      onChange={(e) => {
+                        setDraftTelegramSupport(e.target.value);
+                        setHasChanges(true);
+                      }}
+                      placeholder="FATHERXSIR"
+                      className="w-full px-4 py-2.5 bg-black/50 border border-white/10 rounded-xl text-xs sm:text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Full Store Database Backup (JSON Export) */}
+              <div className="p-5 bg-gradient-to-r from-emerald-950/30 via-cyan-950/20 to-black/40 border border-emerald-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-[0_0_20px_rgba(16,185,129,0.1)]">
+                <div className="flex items-center gap-3.5">
+                  <div className="w-11 h-11 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                    <Download className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      Full Store Database Backup (JSON)
+                    </h4>
+                    <p className="text-xs text-zinc-400 mt-0.5">
+                      Download a single JSON file containing all products, license keys, coupons, orders, and customer accounts.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportStoreBackupJSON}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 shrink-0 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Download Backup JSON</span>
+                </button>
+              </div>
+
               {/* Payment Gateway Shortcut Banner */}
               <div className="p-5 bg-gradient-to-r from-indigo-950/40 via-violet-950/30 to-zinc-950 border border-indigo-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-[0_0_20px_rgba(99,102,241,0.15)]">
                 <div className="flex items-center gap-3.5">
@@ -1940,18 +2236,19 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
               </div>
 
               {hasChanges && (
-                <div className="mt-8 pt-6 border-t border-zinc-800 flex items-center justify-end gap-4 relative z-10">
+                <div className="mt-8 pt-6 border-t border-white/10 flex items-center justify-end gap-4 relative z-10">
                   <button
                     onClick={handleDiscardChanges}
-                    className="px-6 py-2 bg-zinc-800 text-zinc-300 font-medium rounded-xl hover:bg-zinc-700 transition-colors"
+                    className="px-6 py-2.5 bg-zinc-800 text-zinc-300 font-semibold rounded-xl hover:bg-zinc-700 transition-colors cursor-pointer"
                   >
-                    Discard
+                    Discard Changes
                   </button>
                   <button
                     onClick={handleSaveSettings}
-                    className="px-6 py-2 bg-fuchsia-600 text-white font-medium rounded-xl hover:bg-fuchsia-500 transition-colors shadow-[0_0_15px_rgba(224,0,255,0.4)] hover:shadow-[0_0_20px_rgba(224,0,255,0.6)]"
+                    className="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-500 transition-all shadow-[0_0_20px_rgba(99,102,241,0.4)] cursor-pointer flex items-center gap-2"
                   >
-                    Save Changes
+                    <Check className="w-4 h-4" />
+                    <span>Save All Changes</span>
                   </button>
                 </div>
               )}
@@ -2161,10 +2458,31 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
 
                             {/* Customer Details */}
                             <td className="py-3.5 px-5 text-xs text-zinc-300">
-                              <div className="font-bold text-white text-sm">
-                                {ord.customerName || (ord.userEmail ? ord.userEmail.split('@')[0] : 'Customer')}
+                              <div className="font-bold text-white text-sm flex items-center gap-1.5">
+                                <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                <span>{ord.customerName || (ord.userEmail ? ord.userEmail.split('@')[0] : 'Customer')}</span>
                               </div>
                               
+                              {/* Customer Gmail / Email ID */}
+                              {ord.userEmail ? (
+                                <div className="flex items-center gap-1 mt-1 text-xs font-mono text-zinc-200 bg-zinc-900/80 px-2 py-0.5 rounded border border-white/10 max-w-[220px]">
+                                  <Mail className="w-3 h-3 text-indigo-400 shrink-0" />
+                                  <span className="truncate">{ord.userEmail}</span>
+                                  <button
+                                    onClick={() => handleCopyText(ord.userEmail!, `email_ord_${ord.orderId}`)}
+                                    className="text-zinc-500 hover:text-white ml-auto shrink-0 p-0.5"
+                                    title="Copy Customer Gmail ID"
+                                  >
+                                    {copiedText === `email_ord_${ord.orderId}` ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-zinc-500 font-mono mt-0.5 flex items-center gap-1">
+                                  <Mail className="w-2.5 h-2.5 text-zinc-600" />
+                                  <span>No email provided</span>
+                                </div>
+                              )}
+
                               {ord.customerPhone ? (
                                 <div className="flex items-center gap-1.5 mt-1">
                                   <span className="font-mono text-emerald-400 font-semibold text-xs">+91 {ord.customerPhone}</span>
@@ -2180,12 +2498,6 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                   </a>
                                 </div>
                               ) : null}
-
-                              {ord.userEmail && (
-                                <div className="text-[11px] text-zinc-400 truncate max-w-[180px] mt-0.5 font-mono">
-                                  {ord.userEmail}
-                                </div>
-                              )}
 
                               {ord.deliveredKeys && ord.deliveredKeys.length > 0 && (
                                 <div className="mt-1.5 p-1 px-2 rounded bg-black/70 border border-emerald-500/30 text-[10px] font-mono text-emerald-300 flex items-center justify-between gap-1">
@@ -2614,12 +2926,33 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
 
                             {/* Customer & WhatsApp */}
                             <td className="py-4 px-5 text-xs">
-                              <div className="font-bold text-white text-sm truncate max-w-[190px] flex items-center gap-1.5">
+                              <div className="font-bold text-white text-sm truncate max-w-[200px] flex items-center gap-1.5">
                                 <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
                                 <span>{txn.customerName || txn.displayName || (txn.userId === 'anonymous' ? 'Customer' : txn.userId)}</span>
                               </div>
-                              <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                                {txn.customerPhone ? (
+
+                              {/* Customer Gmail ID */}
+                              {txn.userEmail ? (
+                                <div className="flex items-center gap-1 mt-1 text-[11px] font-mono text-zinc-300 bg-zinc-900/80 px-2 py-0.5 rounded border border-white/10 max-w-[220px]">
+                                  <Mail className="w-3 h-3 text-indigo-400 shrink-0" />
+                                  <span className="truncate">{txn.userEmail}</span>
+                                  <button
+                                    onClick={() => handleCopyText(txn.userEmail!, `email_txn_${txn.id}`)}
+                                    className="text-zinc-500 hover:text-white ml-auto shrink-0 p-0.5"
+                                    title="Copy Customer Gmail ID"
+                                  >
+                                    {copiedText === `email_txn_${txn.id}` ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                                  {txn.userId === 'anonymous' ? 'Web Buyer' : `@${txn.userId.substring(0, 10)}`}
+                                </div>
+                              )}
+
+                              {/* WhatsApp Contact Link */}
+                              {txn.customerPhone && (
+                                <div className="mt-1">
                                   <a
                                     href={`https://wa.me/91${txn.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${txn.customerName || ''}, aapka Arman X Store order #${txn.id} verified hai.`)}`}
                                     target="_blank"
@@ -2630,12 +2963,8 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                     <MessageCircle className="w-3 h-3 text-emerald-400 shrink-0" />
                                     <span>+91 {txn.customerPhone}</span>
                                   </a>
-                                ) : (
-                                  <span className="text-[10px] text-zinc-400 font-mono">
-                                    {txn.userEmail || (txn.userId === 'anonymous' ? 'Web Buyer' : txn.userId)}
-                                  </span>
-                                )}
-                              </div>
+                                </div>
+                              )}
                             </td>
 
                             {/* Amount */}

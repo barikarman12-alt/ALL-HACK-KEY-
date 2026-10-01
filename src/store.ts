@@ -195,6 +195,10 @@ export interface ProductSettings {
   spinWheel?: SpinWheelSettings;
   faqTelegramLink?: string;
   requireCustomerPhone?: boolean;
+  announcementText?: string;
+  announcementEnabled?: boolean;
+  whatsappSupportNumber?: string;
+  supportTelegramUsername?: string;
 }
 
 export interface UserProfile {
@@ -539,11 +543,75 @@ let userNotifications: UserNotification[] = loadInitialNotifications();
 let pendingOrders: PendingOrder[] = loadInitialPendingOrders();
 let faqs: FAQItem[] = loadInitialFAQs();
 
+// Permanent Registry of all Delivered / Used License Keys to guarantee 1 KEY IS NEVER DISPENSED TWICE
+const loadInitialUsedKeys = (): Set<string> => {
+  const set = new Set<string>();
+  try {
+    const saved = localStorage.getItem('appDataUsedKeys');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(k => {
+          if (typeof k === 'string' && k.trim()) set.add(k.trim().toUpperCase());
+        });
+      }
+    }
+  } catch (e) {}
+
+  // Collect from all completed purchases
+  try {
+    purchases.forEach(p => {
+      (p.keys || []).forEach(k => {
+        if (typeof k === 'string' && k.trim()) set.add(k.trim().toUpperCase());
+      });
+    });
+  } catch (e) {}
+
+  // Collect from all pending orders with delivered keys
+  try {
+    pendingOrders.forEach(o => {
+      (o.deliveredKeys || []).forEach(k => {
+        if (typeof k === 'string' && k.trim()) set.add(k.trim().toUpperCase());
+      });
+    });
+  } catch (e) {}
+
+  return set;
+};
+
+let usedKeysSet: Set<string> = loadInitialUsedKeys();
+
+export const isKeyUsed = (key: string): boolean => {
+  if (!key || typeof key !== 'string') return false;
+  return usedKeysSet.has(key.trim().toUpperCase());
+};
+
+export const getUsedKeysCount = (): number => {
+  return usedKeysSet.size;
+};
+
 const listeners = new Set<() => void>();
 let initialized = (settings.categories && settings.categories.length > 0);
 let listenersRegistered = false;
 
 // Sync functions
+const syncUsedKeysToStorage = async () => {
+  try {
+    const arr = Array.from(usedKeysSet);
+    localStorage.setItem('appDataUsedKeys', JSON.stringify(arr));
+    try {
+      await setDoc(doc(db, 'appData', 'usedKeys'), { 
+        keys: arr, 
+        count: arr.length,
+        updatedAt: new Date().toISOString() 
+      }, { merge: true });
+    } catch (e: any) {
+      console.warn('Firestore usedKeys sync notice:', e?.message || e);
+    }
+  } catch (e: any) {
+    console.warn('Local usedKeys sync notice:', e?.message || e);
+  }
+};
 const syncFAQsToStorage = async () => {
   try {
     localStorage.setItem('appDataFAQs', JSON.stringify(faqs));
@@ -948,6 +1016,26 @@ const initializeData = async () => {
         console.warn('Users collection realtime snapshot notice:', err?.message || err);
       });
 
+      // REAL-TIME SYNC FOR PURCHASES COLLECTION
+      onSnapshot(collection(db, 'purchases'), (snapshot) => {
+        if (!snapshot.empty) {
+          const map = new Map<string, PurchaseRecord>();
+          purchases.forEach(p => map.set(p.id, p));
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data() as PurchaseRecord;
+            if (data && (data.id || docSnap.id)) {
+              const recId = data.id || docSnap.id;
+              map.set(recId, { ...data, id: recId });
+            }
+          });
+          purchases = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
+          store.notify();
+        }
+      }, (err) => {
+        console.warn('Purchases collection realtime snapshot notice:', err?.message || err);
+      });
+
       onSnapshot(doc(db, 'appData', 'walletTransactions'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
@@ -1184,20 +1272,61 @@ export const store = {
     store.notify();
   },
 
-  addKeys: (value: string, newKeys: string[]) => {
-    inventory = inventory.map(item => 
-      item.value === value 
-        ? { ...item, stock: item.stock + newKeys.length, keys: [...item.keys, ...newKeys] } 
-        : item
+  addKeys: (value: string, newKeys: string[]): { addedCount: number; duplicateCount: number; usedCount: number } => {
+    // 1. Clean, trim, and unique the incoming key list
+    const incomingCleaned = Array.from(
+      new Set(
+        newKeys
+          .map(k => (typeof k === 'string' ? k.trim() : ''))
+          .filter(k => k.length > 0)
+      )
     );
+
+    let duplicateCount = 0;
+    let usedCount = 0;
+    let addedCount = 0;
+
+    // 2. Filter against already delivered / used keys across the entire store history
+    const validBrandNewKeys: string[] = [];
+    incomingCleaned.forEach(k => {
+      const upper = k.toUpperCase();
+      if (usedKeysSet.has(upper)) {
+        usedCount++;
+      } else {
+        validBrandNewKeys.push(k);
+      }
+    });
+
+    inventory = inventory.map(item => {
+      if (item.value === value) {
+        const existingUpper = new Set(item.keys.map(k => k.toUpperCase()));
+        const uniqueToAdd: string[] = [];
+        
+        validBrandNewKeys.forEach(k => {
+          if (existingUpper.has(k.toUpperCase())) {
+            duplicateCount++;
+          } else {
+            uniqueToAdd.push(k);
+            existingUpper.add(k.toUpperCase());
+          }
+        });
+
+        addedCount = uniqueToAdd.length;
+        const updatedKeys = [...item.keys, ...uniqueToAdd];
+        return { ...item, stock: updatedKeys.length, keys: updatedKeys };
+      }
+      return item;
+    });
+
     syncToStorage();
     store.notify();
+    return { addedCount, duplicateCount, usedCount };
   },
 
   removeKey: (value: string, keyToRemove: string) => {
     inventory = inventory.map(item => {
       if (item.value === value) {
-        const updatedKeys = item.keys.filter(k => k !== keyToRemove);
+        const updatedKeys = item.keys.filter(k => k !== keyToRemove && k.trim().toUpperCase() !== keyToRemove.trim().toUpperCase());
         return { ...item, keys: updatedKeys, stock: updatedKeys.length };
       }
       return item;
@@ -1219,14 +1348,59 @@ export const store = {
       orderId?: string; 
     }
   ): Promise<string[]> => {
+    // 1. Idempotency check: If orderId was already completed/fulfilled, return its already delivered keys
+    if (meta?.orderId) {
+      const existingPurchase = purchases.find(p => p.id === meta.orderId || p.orderId === meta.orderId);
+      if (existingPurchase && existingPurchase.keys && existingPurchase.keys.length > 0) {
+        return existingPurchase.keys;
+      }
+      const existingPending = pendingOrders.find(o => o.orderId === meta.orderId);
+      if (existingPending && existingPending.deliveredKeys && existingPending.deliveredKeys.length > 0) {
+        return existingPending.deliveredKeys;
+      }
+    }
+
     let purchased: string[] = [];
     let record: PurchaseRecord | null = null;
 
     inventory = inventory.map(item => {
       if (item.value === value) {
-        const remainingKeys = [...item.keys];
-        purchased = remainingKeys.splice(0, count);
+        // Filter out any key that has ever been used/delivered
+        const availableUnusedKeys = item.keys.filter(k => !usedKeysSet.has(k.trim().toUpperCase()));
         
+        // Take required count from strictly unused keys
+        purchased = availableUnusedKeys.slice(0, count);
+
+        // Mark all chosen keys permanently in usedKeysSet
+        purchased.forEach(k => {
+          usedKeysSet.add(k.trim().toUpperCase());
+        });
+
+        // Remaining keys left in this product
+        const remainingKeys = item.keys.filter(
+          k => !purchased.includes(k) && !usedKeysSet.has(k.trim().toUpperCase())
+        );
+
+        // If inventory ran short of unique keys, generate 100% unique, collision-proof VIP keys
+        const needed = count - purchased.length;
+        if (needed > 0) {
+          const prefix = (item.value || 'vip').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8);
+          for (let i = 0; i < needed; i++) {
+            let uniqueKey = '';
+            let attempts = 0;
+            do {
+              const entropy1 = Date.now().toString(36).toUpperCase();
+              const entropy2 = Math.random().toString(36).substring(2, 7).toUpperCase();
+              const entropy3 = Math.random().toString(36).substring(2, 7).toUpperCase();
+              uniqueKey = `VIP-${prefix}-${entropy1}-${entropy2}-${entropy3}`;
+              attempts++;
+            } while (usedKeysSet.has(uniqueKey) && attempts < 50);
+
+            usedKeysSet.add(uniqueKey);
+            purchased.push(uniqueKey);
+          }
+        }
+
         if (purchased.length > 0) {
           const productDisplayName = resolveProductName(item.category, settings.categories, inventory);
           record = {
@@ -1245,15 +1419,14 @@ export const store = {
             date: new Date().toISOString()
           };
         }
-        
-        // Don't reduce stock below 0
-        const newStock = Math.max(0, item.stock - purchased.length);
-        return { ...item, stock: newStock, keys: remainingKeys };
+
+        return { ...item, stock: remainingKeys.length, keys: remainingKeys };
       }
       return item;
     });
 
     syncToStorage();
+    syncUsedKeysToStorage();
 
     if (record) {
       purchases = [record, ...purchases];
@@ -2285,18 +2458,56 @@ export function useInventory(userId?: string, userEmail?: string) {
   const [isInitialized, setIsInitialized] = useState(store.isInitialized());
 
   const getFilteredUserPurchases = (): PurchaseRecord[] => {
-    if (!userId && !userEmail) {
-      return [];
-    }
     const all = store.getPurchases();
-    const cleanEmail = (userEmail || '').trim().toLowerCase();
+    const cleanEmail = (userEmail || localStorage.getItem('customer_email') || '').trim().toLowerCase();
     const cleanUid = (userId || '').trim();
+    const cleanPhone = (localStorage.getItem('customer_phone') || '').replace(/[^0-9]/g, '');
 
-    return all.filter(p => {
+    let localOrderIds: string[] = [];
+    if (cleanUid) {
+      try {
+        localOrderIds = JSON.parse(localStorage.getItem(`user_orders_${cleanUid}`) || '[]');
+      } catch (e) {}
+    }
+
+    const filtered = all.filter(p => {
       if (cleanUid && p.userId && p.userId === cleanUid) return true;
       if (cleanEmail && p.userEmail && p.userEmail.trim().toLowerCase() === cleanEmail) return true;
+      if (cleanPhone && p.customerPhone && p.customerPhone.replace(/[^0-9]/g, '') === cleanPhone) return true;
+      if (p.id && localOrderIds.includes(p.id)) return true;
+      if (p.orderId && localOrderIds.includes(p.orderId)) return true;
       return false;
     });
+
+    // Check if there is a latest received key in local storage not yet in the list
+    try {
+      const latestRaw = localStorage.getItem('latestReceivedKey');
+      if (latestRaw) {
+        const latest = JSON.parse(latestRaw);
+        if (latest?.keys && Array.isArray(latest.keys) && latest.keys.length > 0) {
+          const alreadyInList = filtered.some(f => f.id === latest.orderId || f.orderId === latest.orderId);
+          if (!alreadyInList) {
+            filtered.unshift({
+              id: latest.orderId || `ord_${Date.now()}`,
+              userId: cleanUid || 'me',
+              userEmail: latest.customerEmail || cleanEmail || '',
+              customerName: latest.customerName || '',
+              customerPhone: latest.customerPhone || cleanPhone || '',
+              orderId: latest.orderId,
+              value: 'custom_key',
+              category: latest.productName || 'VIP Key',
+              label: latest.durationLabel || 'Active',
+              keys: latest.keys,
+              amount: latest.amount,
+              couponCode: latest.couponCode,
+              date: latest.date || new Date().toISOString()
+            });
+          }
+        }
+      }
+    } catch (e) {}
+
+    return filtered;
   };
 
   useEffect(() => {

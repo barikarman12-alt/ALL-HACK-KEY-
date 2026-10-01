@@ -22,6 +22,7 @@ import { store, useInventory, useBalance, resolveProductName, useSpinBalance } f
 import { useAuth } from '../lib/useAuth';
 import { PurchaseSuccessPayload } from './Pricing';
 import { SpinWheelModal } from './SpinWheelModal';
+import { Helmet } from './Helmet';
 
 interface VerifyPaymentPageProps {
   onBackToHome: () => void;
@@ -306,6 +307,10 @@ Thank you for your purchase!
 
   return (
     <div className="min-h-screen bg-[#07090e] text-zinc-100 flex flex-col justify-between selection:bg-cyan-500/30">
+      <Helmet 
+        title={`Verify Payment - ${settings?.siteName || 'Arman X Store'}`}
+        description={`Verify your UPI payment order and download your official VIP key receipt on ${settings?.siteName || 'Arman X Store'}.`}
+      />
       
       {/* Background Neon Ambient Glows */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
@@ -369,7 +374,7 @@ Thank you for your purchase!
             </div>
 
             {/* Order Summary & Customer Info Strip */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-6 gap-3 p-3.5 rounded-2xl bg-white/[0.03] border border-white/[0.06] text-xs">
               <div>
                 <span className="text-zinc-400 text-[11px] block">Order ID</span>
                 <span className="font-mono font-bold text-white truncate block">
@@ -380,18 +385,24 @@ Thank you for your purchase!
                 <span className="text-zinc-400 text-[11px] block">Customer Name</span>
                 <span className="font-bold text-white truncate block flex items-center gap-1">
                   <User className="w-3 h-3 text-cyan-400 shrink-0" />
-                  <span>{orderDetails?.customerName || localStorage.getItem('customer_name') || 'Customer'}</span>
+                  <span>{orderDetails?.customerName || localStorage.getItem('customer_name') || currentUser?.displayName || 'Customer'}</span>
                 </span>
               </div>
               <div>
-                <span className="text-zinc-400 text-[11px] block">WhatsApp / Mobile</span>
+                <span className="text-zinc-400 text-[11px] block">Customer Gmail</span>
+                <span className="font-mono font-bold text-zinc-200 truncate block text-[11px]" title={orderDetails?.customerEmail || currentUser?.email || 'Verified'}>
+                  {orderDetails?.customerEmail || currentUser?.email || localStorage.getItem('customer_email') || 'Direct Checkout'}
+                </span>
+              </div>
+              <div>
+                <span className="text-zinc-400 text-[11px] block">WhatsApp</span>
                 <span className="font-mono font-bold text-emerald-400 truncate block flex items-center gap-1">
                   <Phone className="w-3 h-3 text-emerald-400 shrink-0" />
                   <span>{orderDetails?.customerPhone ? `+91 ${orderDetails.customerPhone}` : (localStorage.getItem('customer_phone') ? `+91 ${localStorage.getItem('customer_phone')}` : 'Verified')}</span>
                 </span>
               </div>
               <div>
-                <span className="text-zinc-400 text-[11px] block">Product & Duration</span>
+                <span className="text-zinc-400 text-[11px] block">Product & Plan</span>
                 <span className="font-semibold text-cyan-300 truncate block">
                   {orderDetails?.productName || 'VIP License'} ({orderDetails?.durationLabel || 'Active'})
                 </span>

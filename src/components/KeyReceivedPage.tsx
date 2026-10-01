@@ -19,6 +19,7 @@ import {
 import { useInventory, resolveProductName, useSpinBalance } from '../store';
 import { useAuth } from '../lib/useAuth';
 import { SpinWheelModal } from './SpinWheelModal';
+import { Helmet } from './Helmet';
 import { Gift } from 'lucide-react';
 
 export interface KeyReceivedData {
@@ -116,6 +117,10 @@ export function KeyReceivedPage({ data, onBackToHome, onViewKeyHistory }: KeyRec
 
   return (
     <div className="min-h-screen bg-[#050508] text-zinc-100 selection:bg-purple-500/30 selection:text-purple-200 relative overflow-hidden flex flex-col justify-between pt-20 pb-16 px-4 sm:px-6">
+      <Helmet 
+        title={`Key Received - ${settings?.siteName || 'Arman X Store'}`}
+        description={`Your VIP digital activation license key is ready to copy on ${settings?.siteName || 'Arman X Store'}. Instant delivery completed.`}
+      />
       
       {/* Background Ambient Glow Accents */}
       <div className="pointer-events-none fixed inset-0 z-0">

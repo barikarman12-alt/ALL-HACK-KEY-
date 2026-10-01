@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { useInventory, resolveProductName, PurchaseRecord } from '../store';
 import { useAuth } from '../lib/useAuth';
+import { Helmet } from './Helmet';
+import { KeyHistorySkeleton, ButtonSpinner } from './Skeletons';
 
 interface KeyHistoryPageProps {
   onBackToHome: () => void;
@@ -25,7 +27,7 @@ interface KeyHistoryPageProps {
 
 export function KeyHistoryPage({ onBackToHome, onBuyMore }: KeyHistoryPageProps) {
   const { currentUser } = useAuth();
-  const { purchases, allPurchases, settings, items } = useInventory(currentUser?.uid, currentUser?.email || undefined);
+  const { purchases, allPurchases, settings, items, isInitialized } = useInventory(currentUser?.uid, currentUser?.email || undefined);
 
   // Clean up legacy global cached order IDs on mount
   useEffect(() => {
@@ -35,24 +37,30 @@ export function KeyHistoryPage({ onBackToHome, onBuyMore }: KeyHistoryPageProps)
   }, []);
 
   const isOwner = Boolean(
+    currentUser?.role === 'owner' ||
+    currentUser?.role === 'admin' ||
     currentUser?.email?.includes('barikarman') || 
     ['admin', 'owner', 'arman_123'].includes(currentUser?.customId || '') || 
     currentUser?.customId?.includes('barikarman')
   );
 
-  // Default tab is always 'my' so user strictly sees their own keys
-  const [activeTab, setActiveTab] = useState<'my' | 'all'>('my');
+  // Default tab: 'all' for store owner/admin, 'my' for customers
+  const [activeTab, setActiveTab] = useState<'my' | 'all'>(() => {
+    return isOwner ? 'all' : 'my';
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
-  // Strictly filter by logged-in user
-  const userPurchases = purchases.filter(p => {
-    if (!currentUser) return false;
-    const uidMatch = currentUser.uid && p.userId === currentUser.uid;
-    const emailMatch = currentUser.email && p.userEmail && p.userEmail.toLowerCase() === currentUser.email.toLowerCase();
-    return uidMatch || emailMatch;
-  });
+  // User personal purchases
+  const userPurchases = (purchases && purchases.length > 0)
+    ? purchases
+    : allPurchases.filter(p => {
+        if (!currentUser) return false;
+        const uidMatch = currentUser.uid && p.userId === currentUser.uid;
+        const emailMatch = currentUser.email && p.userEmail && p.userEmail.toLowerCase() === currentUser.email.toLowerCase();
+        return uidMatch || emailMatch;
+      });
 
   const displayList = isOwner && activeTab === 'all' ? allPurchases : userPurchases;
 
@@ -82,6 +90,10 @@ export function KeyHistoryPage({ onBackToHome, onBuyMore }: KeyHistoryPageProps)
 
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100 pt-24 pb-20 px-4 sm:px-6 lg:px-8 selection:bg-indigo-500 selection:text-white transition-colors duration-300 theme-section">
+      <Helmet 
+        title={`Your Keys - ${settings?.siteName || 'Arman X Store'}`}
+        description={`View and manage your active VIP activation keys, license codes, and order history on ${settings?.siteName || 'Arman X Store'}.`}
+      />
       <div className="max-w-5xl mx-auto space-y-8">
         
         {/* Header */}
@@ -193,28 +205,68 @@ export function KeyHistoryPage({ onBackToHome, onBuyMore }: KeyHistoryPageProps)
 
             {/* Keys List Display */}
             <div className="space-y-4">
-              {filteredList.length === 0 ? (
-                <div className="bg-[#121215]/80 border border-white/10 rounded-3xl p-12 text-center space-y-4 backdrop-blur-xl theme-card">
+              {!isInitialized && filteredList.length === 0 ? (
+                <KeyHistorySkeleton count={3} />
+              ) : filteredList.length === 0 ? (
+                <div className="bg-[#121215]/80 border border-white/10 rounded-3xl p-8 sm:p-12 text-center space-y-5 backdrop-blur-xl theme-card max-w-xl mx-auto">
                   <div className="w-14 h-14 rounded-2xl bg-zinc-900/80 border border-white/10 flex items-center justify-center mx-auto text-zinc-500">
-                    <Key className="w-7 h-7 text-indigo-400/50" />
+                    <Key className="w-7 h-7 text-indigo-400/70" />
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-white theme-text-title">
-                      {searchQuery ? 'No matching keys found' : 'No keys purchased with this ID yet'}
+                      {searchQuery ? 'No matching keys found' : 'No license keys found for this view'}
                     </h3>
                     <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1 theme-text-sub">
                       {searchQuery 
-                        ? `No keys matched "${searchQuery}". Try another keyword.` 
-                        : `You haven't bought any license keys with this ID (${currentUser.email || currentUser.displayName}). Keys purchased with this account will show up here.`}
+                        ? `No keys matched "${searchQuery}". Try searching with Order ID or product name.` 
+                        : `If you completed a purchase, enter your Order ID below to retrieve your digital keys instantly.`}
                     </p>
                   </div>
-                  <button
-                    onClick={onBuyMore}
-                    className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.35)] transition-all cursor-pointer inline-flex items-center gap-2"
+
+                  {/* Instant Order ID Finder Box */}
+                  <form 
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const val = searchQuery.trim();
+                      if (val) {
+                        window.location.href = `/verify-payment?order_id=${encodeURIComponent(val)}`;
+                      }
+                    }}
+                    className="flex items-center gap-2 max-w-md mx-auto"
                   >
-                    <ShoppingBag className="w-4 h-4" />
-                    <span>Buy a License Key Now</span>
-                  </button>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Enter Order ID (e.g. ord_xxx or FAM ID)"
+                      className="flex-1 bg-zinc-950 border border-white/15 focus:border-indigo-500 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-zinc-500 font-mono outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!searchQuery.trim()}
+                      className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer shrink-0"
+                    >
+                      Find Key
+                    </button>
+                  </form>
+
+                  <div className="pt-2 flex items-center justify-center gap-3">
+                    <button
+                      onClick={onBuyMore}
+                      className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold text-xs rounded-xl shadow-[0_0_20px_rgba(99,102,241,0.35)] transition-all cursor-pointer inline-flex items-center gap-2"
+                    >
+                      <ShoppingBag className="w-4 h-4" />
+                      <span>Buy a VIP Key Now</span>
+                    </button>
+                    {isOwner && activeTab !== 'all' && (
+                      <button
+                        onClick={() => setActiveTab('all')}
+                        className="px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-semibold text-xs rounded-xl border border-white/10 transition-colors cursor-pointer"
+                      >
+                        View All Store Keys ({allPurchases.length})
+                      </button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 filteredList.map((purchase) => {
@@ -255,9 +307,14 @@ export function KeyHistoryPage({ onBackToHome, onBuyMore }: KeyHistoryPageProps)
                             <span className="text-[11px] font-mono text-zinc-500">
                               Order ID: {purchase.id}
                             </span>
-                            {isOwner && activeTab === 'all' && (
-                              <span className="text-indigo-400 text-[11px]">
-                                Account: {purchase.userEmail || purchase.userId || 'Guest'}
+                            {purchase.userEmail && (
+                              <span className="text-indigo-400 text-[11px] font-mono">
+                                Gmail: {purchase.userEmail}
+                              </span>
+                            )}
+                            {isOwner && activeTab === 'all' && !purchase.userEmail && (
+                              <span className="text-zinc-500 text-[11px]">
+                                User: {purchase.userId || 'Guest'}
                               </span>
                             )}
                           </div>
