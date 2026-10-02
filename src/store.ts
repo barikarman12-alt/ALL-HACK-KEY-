@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { db, auth } from './lib/firebase';
-import { doc, getDoc, setDoc, onSnapshot, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, onSnapshot, collection, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 
 export interface Coupon {
@@ -488,14 +488,22 @@ const loadInitialPendingOrders = (): PendingOrder[] => {
 const loadInitialCoupons = (): Coupon[] => {
   try {
     const dedicated = localStorage.getItem('appDataCoupons');
+    let localList: Coupon[] = [];
     if (dedicated) {
       const parsed = JSON.parse(dedicated);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        localList = parsed;
+      }
     }
     const global = localStorage.getItem('appDataGlobal');
     if (global) {
       const parsed = JSON.parse(global);
-      if (parsed && Array.isArray(parsed.coupons) && parsed.coupons.length > 0) return parsed.coupons;
+      if (parsed && Array.isArray(parsed.coupons) && parsed.coupons.length > 0) {
+        localList = mergeCoupons(localList, parsed.coupons);
+      }
+    }
+    if (localList.length > 0) {
+      return mergeCoupons(defaultCoupons, localList);
     }
   } catch (e) {}
   return defaultCoupons;
@@ -504,16 +512,26 @@ const loadInitialCoupons = (): Coupon[] => {
 const mergeCoupons = (baseList: Coupon[], incomingList: Coupon[]): Coupon[] => {
   const map = new Map<string, Coupon>();
   (baseList || []).forEach(c => {
-    if (c && c.code) map.set(c.code.trim().toUpperCase(), c);
+    if (c && c.code) {
+      const key = c.code.trim().toUpperCase();
+      map.set(key, { ...c, code: key, discountValue: Math.max(1, Number(c.discountValue) || 1) });
+    }
   });
   (incomingList || []).forEach(c => {
     if (c && c.code) {
       const key = c.code.trim().toUpperCase();
       const existing = map.get(key);
       if (existing) {
-        map.set(key, { ...existing, ...c, usageCount: Math.max(existing.usageCount || 0, c.usageCount || 0) });
+        map.set(key, { 
+          ...existing, 
+          ...c, 
+          code: key,
+          discountValue: Math.max(1, Number(c.discountValue ?? existing.discountValue) || 1),
+          usageCount: Math.max(existing.usageCount || 0, c.usageCount || 0),
+          active: c.active !== undefined ? c.active : existing.active
+        });
       } else {
-        map.set(key, c);
+        map.set(key, { ...c, code: key, discountValue: Math.max(1, Number(c.discountValue) || 1) });
       }
     }
   });
@@ -629,6 +647,12 @@ const syncCouponsToStorage = async () => {
     localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
     try {
       await setDoc(doc(db, 'appData', 'coupons'), { coupons, updatedAt: new Date().toISOString() }, { merge: true });
+      // Also sync each individual coupon doc for high-availability Firestore collection queries
+      for (const c of coupons) {
+        if (c && c.id) {
+          setDoc(doc(db, 'coupons', c.id), c, { merge: true }).catch(() => {});
+        }
+      }
     } catch (e: any) {
       console.warn('Firestore coupons sync notice:', e?.message || e);
     }
@@ -735,9 +759,10 @@ const initializeData = async () => {
     }
 
     // Parallel fetch from Firestore
-    const [globalRes, couponsRes, faqsRes, purchasesDocRes, purchasesColRes, usersDocRes, usersColRes, txRes, notifRes] = await Promise.allSettled([
+    const [globalRes, couponsRes, couponsColRes, faqsRes, purchasesDocRes, purchasesColRes, usersDocRes, usersColRes, txRes, notifRes] = await Promise.allSettled([
       getDoc(doc(db, 'appData', 'global')),
       getDoc(doc(db, 'appData', 'coupons')),
+      getDocs(collection(db, 'coupons')),
       getDoc(doc(db, 'appData', 'faqs')),
       getDoc(doc(db, 'appData', 'purchases')),
       getDocs(collection(db, 'purchases')),
@@ -756,11 +781,24 @@ const initializeData = async () => {
       }
     }
 
-    // Handle Coupons
+    // Handle Coupons from doc
     if (couponsRes.status === 'fulfilled' && couponsRes.value.exists()) {
       const cData = couponsRes.value.data();
       if (Array.isArray(cData.coupons) && cData.coupons.length > 0) {
-        coupons = cData.coupons;
+        coupons = mergeCoupons(coupons, cData.coupons);
+        localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+      }
+    }
+
+    // Handle Coupons from collection
+    if (couponsColRes.status === 'fulfilled' && !couponsColRes.value.empty) {
+      const remoteCoupons: Coupon[] = [];
+      couponsColRes.value.forEach(d => {
+        const c = d.data() as Coupon;
+        if (c && c.code) remoteCoupons.push({ ...c, id: c.id || d.id });
+      });
+      if (remoteCoupons.length > 0) {
+        coupons = mergeCoupons(coupons, remoteCoupons);
         localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
       }
     }
@@ -899,13 +937,32 @@ const initializeData = async () => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (Array.isArray(data.coupons)) {
-            coupons = data.coupons;
+            coupons = mergeCoupons(coupons, data.coupons);
             localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
             store.notify();
           }
         }
       }, (err) => {
         console.warn('Coupons snapshot offline/notice:', err?.message || err);
+      });
+
+      onSnapshot(collection(db, 'coupons'), (snapshot) => {
+        if (!snapshot.empty) {
+          const remoteList: Coupon[] = [];
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data() as Coupon;
+            if (data && data.code) {
+              remoteList.push({ ...data, id: data.id || docSnap.id });
+            }
+          });
+          if (remoteList.length > 0) {
+            coupons = mergeCoupons(coupons, remoteList);
+            localStorage.setItem('appDataCoupons', JSON.stringify(coupons));
+            store.notify();
+          }
+        }
+      }, (err) => {
+        console.warn('Coupons collection snapshot notice:', err?.message || err);
       });
 
       onSnapshot(doc(db, 'appData', 'faqs'), (docSnap) => {
@@ -1483,15 +1540,20 @@ export const store = {
 
   // Coupon management
   getCoupons: () => coupons,
+  getActiveCoupons: () => coupons.filter(c => c.active !== false),
 
   addCoupon: (newCouponData: Omit<Coupon, 'id' | 'createdAt'>) => {
-    const code = newCouponData.code.trim().toUpperCase();
+    const code = newCouponData.code.trim().toUpperCase().replace(/^#/, '');
+    const discVal = Math.max(1, Number(newCouponData.discountValue) || 1);
     const newCoupon: Coupon = {
       ...newCouponData,
       id: 'coupon_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
       code,
-      discountValue: Math.max(1, Number(newCouponData.discountValue) || 1),
+      discountType: newCouponData.discountType || 'percentage',
+      discountValue: discVal,
+      active: newCouponData.active !== false,
       usageCount: 0,
+      minSpend: Math.max(0, Number(newCouponData.minSpend) || 0),
       createdAt: new Date().toISOString()
     };
     // Replace if exists, or prepend
@@ -1506,8 +1568,9 @@ export const store = {
     coupons = coupons.map(c => {
       if (c.id === id) {
         const updated = { ...c, ...updates };
-        if (updates.code) updated.code = updates.code.trim().toUpperCase();
+        if (updates.code) updated.code = updates.code.trim().toUpperCase().replace(/^#/, '');
         if (typeof updates.discountValue !== 'undefined') updated.discountValue = Math.max(1, Number(updates.discountValue) || 1);
+        if (typeof updates.minSpend !== 'undefined') updated.minSpend = Math.max(0, Number(updates.minSpend) || 0);
         return updated;
       }
       return c;
@@ -1519,6 +1582,9 @@ export const store = {
 
   deleteCoupon: (id: string) => {
     coupons = coupons.filter(c => c.id !== id);
+    try {
+      deleteDoc(doc(db, 'coupons', id)).catch(() => {});
+    } catch (e) {}
     syncCouponsToStorage();
     syncToStorage();
     store.notify();
@@ -1563,14 +1629,24 @@ export const store = {
   },
 
   toggleCoupon: (id: string) => {
-    coupons = coupons.map(c => c.id === id ? { ...c, active: !c.active } : c);
+    coupons = coupons.map(c => c.id === id ? { ...c, active: c.active === false ? true : false } : c);
     syncCouponsToStorage();
     syncToStorage();
     store.notify();
   },
 
+  saveAllCoupons: async (updatedList?: Coupon[]) => {
+    if (Array.isArray(updatedList) && updatedList.length > 0) {
+      coupons = updatedList;
+    }
+    await syncCouponsToStorage();
+    await syncToStorage();
+    store.notify();
+    return coupons;
+  },
+
   incrementCouponUsage: (rawCode: string) => {
-    const code = (rawCode || '').trim().toUpperCase();
+    const code = (rawCode || '').trim().toUpperCase().replace(/^#/, '');
     if (!code) return;
     coupons = coupons.map(c => {
       if (c.code.toUpperCase() === code) {
@@ -1584,18 +1660,18 @@ export const store = {
   },
 
   validateCoupon: (rawCode: string, currentTotal: number, productValue?: string) => {
-    const code = (rawCode || '').trim().toUpperCase();
+    const code = (rawCode || '').trim().toUpperCase().replace(/^#/, '');
     if (!code) {
       return { valid: false, discount: 0, finalPrice: currentTotal, message: 'Please enter a coupon code.' };
     }
-    let found = coupons.find(c => c.code.toUpperCase() === code);
+    let found = coupons.find(c => c.code && c.code.trim().toUpperCase() === code);
     if (!found) {
       // Fallback check from localStorage in case memory state was reloaded
       try {
         const dedicated = localStorage.getItem('appDataCoupons');
         if (dedicated) {
           const parsed: Coupon[] = JSON.parse(dedicated);
-          const fallback = parsed.find(c => c.code && c.code.toUpperCase() === code);
+          const fallback = parsed.find(c => c.code && c.code.trim().toUpperCase() === code);
           if (fallback) {
             found = fallback;
             coupons = mergeCoupons(coupons, [fallback]);
@@ -1605,34 +1681,54 @@ export const store = {
       } catch (e) {}
     }
     if (!found) {
-      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${code}" is invalid.` };
+      // Also check global backup storage
+      try {
+        const glob = localStorage.getItem('appDataGlobal');
+        if (glob) {
+          const parsedGlob = JSON.parse(glob);
+          if (parsedGlob && Array.isArray(parsedGlob.coupons)) {
+            const fallback = parsedGlob.coupons.find((c: Coupon) => c.code && c.code.trim().toUpperCase() === code);
+            if (fallback) {
+              found = fallback;
+              coupons = mergeCoupons(coupons, [fallback]);
+              store.notify();
+            }
+          }
+        }
+      } catch (e) {}
     }
-    if (!found.active) {
-      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${code}" is currently disabled.` };
+
+    if (!found) {
+      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${code}" is invalid or does not exist.` };
     }
-    if (found.expiresAt) {
+    if (found.active === false) {
+      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${found.code}" is currently disabled by admin.` };
+    }
+    if (found.expiresAt && found.expiresAt !== 'null' && found.expiresAt !== 'undefined') {
       const expiryTime = new Date(found.expiresAt).getTime();
       if (!isNaN(expiryTime) && Date.now() > expiryTime) {
-        return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${code}" has expired.` };
+        return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${found.code}" has expired.` };
       }
     }
-    if (found.maxUses && found.maxUses > 0 && (found.usageCount || 0) >= found.maxUses) {
-      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${code}" has reached its maximum usage limit (${found.maxUses} times).` };
+    if (found.maxUses && Number(found.maxUses) > 0 && (found.usageCount || 0) >= Number(found.maxUses)) {
+      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon code "${found.code}" has reached its maximum usage limit (${found.maxUses} times).` };
     }
     if (found.applicableScope === 'specific' && found.applicableProducts && found.applicableProducts.length > 0) {
       if (productValue && !found.applicableProducts.includes(productValue)) {
-        return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon "${code}" is not valid for this specific product.` };
+        return { valid: false, discount: 0, finalPrice: currentTotal, message: `Coupon "${found.code}" is valid only for specific selected products.` };
       }
     }
-    if (found.minSpend && currentTotal < found.minSpend) {
-      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Minimum cart amount of ₹${found.minSpend} required for this coupon.` };
+    const minSpend = Number(found.minSpend) || 0;
+    if (minSpend > 0 && currentTotal < minSpend) {
+      return { valid: false, discount: 0, finalPrice: currentTotal, message: `Minimum cart amount of ₹${minSpend} required to use "${found.code}".` };
     }
 
+    const discountVal = Math.max(1, Number(found.discountValue) || 1);
     let discount = 0;
     if (found.discountType === 'percentage') {
-      discount = Math.round((currentTotal * found.discountValue) / 100);
+      discount = Math.round((currentTotal * Math.min(99, discountVal)) / 100);
     } else {
-      discount = Math.round(found.discountValue);
+      discount = Math.round(discountVal);
     }
 
     // Ensure user pays at least 1 rupee
@@ -2415,6 +2511,7 @@ export function useCoupons() {
     updateCoupon: store.updateCoupon,
     deleteCoupon: store.deleteCoupon,
     toggleCoupon: store.toggleCoupon,
+    saveAllCoupons: store.saveAllCoupons,
     validateCoupon: store.validateCoupon,
     incrementCouponUsage: store.incrementCouponUsage,
     quickAdjustCouponDiscount: store.quickAdjustCouponDiscount,

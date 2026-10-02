@@ -123,7 +123,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     } catch {}
   };
   const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, updateSpinWheelSettings, purchases, balances, addProduct, deleteProduct } = useInventory();
-  const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon, quickAdjustCouponDiscount, setCouponDiscountPercent } = useCoupons();
+  const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon, saveAllCoupons, quickAdjustCouponDiscount, setCouponDiscountPercent } = useCoupons();
   const { faqs, addFAQ, updateFAQ, deleteFAQ, toggleFAQ, resetDefaultFAQs } = useFAQs();
   const { users, refreshUsers, updateUserBalance, issueRefund } = useUsers();
   const { allTransactions: allWalletTransactions } = useWalletTransactions();
@@ -1207,6 +1207,21 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
     setCouponSuccessMsg(`✅ Coupon "${editCouponCode}" updated to ${val}${editDiscountType === 'percentage' ? '%' : '₹'} discount!`);
     setEditingCoupon(null);
     setTimeout(() => setCouponSuccessMsg(''), 4000);
+  };
+
+  const [isSavingCoupons, setIsSavingCoupons] = useState(false);
+
+  const handleSaveAllCoupons = async () => {
+    setIsSavingCoupons(true);
+    try {
+      await saveAllCoupons();
+      setCouponSuccessMsg('✅ All coupon codes saved & applied live to website!');
+      setTimeout(() => setCouponSuccessMsg(''), 4500);
+    } catch (err: any) {
+      setCouponFormError('Notice while saving coupons: ' + (err?.message || 'Saved to store'));
+    } finally {
+      setIsSavingCoupons(false);
+    }
   };
   
   // Dynamic Stats Calculation
@@ -4400,6 +4415,63 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
 
         {activeTab === 'coupons' && (
           <div className="space-y-8">
+            {/* Header Action Card with Save Button */}
+            <div className="bg-[#121215]/90 rounded-3xl border border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)] p-6 sm:p-8 backdrop-blur-xl theme-card relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-fuchsia-500/20 border border-fuchsia-500/40 flex items-center justify-center text-fuchsia-400 shadow-[0_0_20px_rgba(224,0,255,0.3)]">
+                    <Tag className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl font-display font-bold text-white flex items-center gap-2.5">
+                      <span>Discount Coupons Manager</span>
+                      <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-emerald-500/10 text-emerald-400 border-emerald-500/30 font-mono">
+                        ● Live Synced with Store
+                      </span>
+                    </h2>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Create, edit discount percentage, enable/disable codes, and sync changes instantly to customer checkout.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <button
+                    type="button"
+                    disabled={isSavingCoupons}
+                    onClick={handleSaveAllCoupons}
+                    className="flex-1 sm:flex-initial px-6 py-3 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 disabled:opacity-50 text-white font-bold text-sm rounded-xl shadow-[0_0_20px_rgba(224,0,255,0.4)] transition-all cursor-pointer flex items-center justify-center gap-2 shrink-0 active:scale-95"
+                  >
+                    {isSavingCoupons ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Saving to Cloud...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        <span>Save All Coupon Changes</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {couponSuccessMsg && (
+                <div className="mt-4 p-3.5 bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs flex items-center gap-2 animate-in fade-in shadow-[0_0_15px_rgba(16,185,129,0.15)] font-medium">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{couponSuccessMsg}</span>
+                </div>
+              )}
+
+              {couponFormError && (
+                <div className="mt-4 p-3.5 bg-rose-500/10 border border-rose-500/30 text-rose-300 rounded-xl text-xs flex items-center gap-2 animate-in fade-in shadow-[0_0_15px_rgba(244,63,94,0.15)] font-medium">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{couponFormError}</span>
+                </div>
+              )}
+            </div>
+
             {/* Quick Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl shadow-[0_0_15px_rgba(224,0,255,0.05)] flex items-center justify-between">
@@ -4885,10 +4957,10 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                   <button
                     type="button"
                     onClick={handleCreateCoupon}
-                    className="w-full sm:w-auto px-6 py-2.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white font-medium text-sm rounded-xl transition-all shadow-[0_0_15px_rgba(224,0,255,0.4)] flex items-center justify-center gap-2"
+                    className="w-full sm:w-auto px-6 py-2.5 bg-gradient-to-r from-fuchsia-600 to-purple-600 hover:from-fuchsia-500 hover:to-purple-500 text-white font-bold text-sm rounded-xl transition-all shadow-[0_0_15px_rgba(224,0,255,0.4)] flex items-center justify-center gap-2 cursor-pointer active:scale-95"
                   >
-                    <Plus className="w-4 h-4" />
-                    Add Coupon Code
+                    <Check className="w-4 h-4" />
+                    <span>Save & Add Coupon Code</span>
                   </button>
                 </div>
               </div>
@@ -4896,9 +4968,23 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
 
             {/* Coupons List */}
             <div className="bg-zinc-900 rounded-2xl border border-zinc-800 shadow-[0_0_15px_rgba(224,0,255,0.05)] overflow-hidden">
-              <div className="px-6 py-5 border-b border-zinc-800 flex justify-between items-center">
-                <h2 className="text-lg font-bold text-white">Active & Configured Coupons</h2>
-                <span className="text-xs text-zinc-400 font-medium">{coupons.length} total coupons</span>
+              <div className="px-6 py-5 border-b border-zinc-800 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                  <h2 className="text-lg font-bold text-white">Active & Configured Coupons</h2>
+                  <p className="text-xs text-zinc-400">All coupons are live synced with the website checkout</p>
+                </div>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-xs text-zinc-400 font-medium">{coupons.length} total coupons</span>
+                  <button
+                    type="button"
+                    disabled={isSavingCoupons}
+                    onClick={handleSaveAllCoupons}
+                    className="px-4 py-1.5 bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-xs font-bold rounded-xl transition-all shadow-[0_0_12px_rgba(224,0,255,0.3)] flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    <span>Save All Changes</span>
+                  </button>
+                </div>
               </div>
 
               <div className="overflow-x-auto">

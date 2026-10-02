@@ -164,7 +164,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
   const { currentUser } = useAuth();
   const { items: pricingOptions, purchaseKeys, settings, isInitialized } = useInventory(currentUser?.uid);
   const { balance, deductBalance, addBalance } = useBalance(currentUser?.uid);
-  const { validateCoupon } = useCoupons();
+  const { validateCoupon, coupons } = useCoupons();
 
   const [selectedProduct, setSelectedProduct] = useState<string | null>(null);
   const [selectedDuration, setSelectedDuration] = useState<any>(pricingOptions[0] || null);
@@ -793,8 +793,13 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                     {appliedCoupon ? (
                       <div className="flex items-center justify-between p-3 bg-emerald-950/20 border border-emerald-500/30 rounded-xl">
                         <div>
-                          <span className="font-mono font-bold text-emerald-400 text-sm">{appliedCoupon.code}</span>
-                          <p className="text-xs text-emerald-300 font-medium">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-emerald-400 text-sm">{appliedCoupon.code}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">
+                              {appliedCoupon.discountType === 'percentage' ? `${appliedCoupon.discountValue}% OFF` : `₹${appliedCoupon.discountValue} FLAT OFF`}
+                            </span>
+                          </div>
+                          <p className="text-xs text-emerald-300 font-medium mt-0.5">
                             You saved ₹{discountAmount} on this order!
                           </p>
                         </div>
@@ -814,7 +819,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                             type="text"
                             value={couponInput}
                             onChange={(e) => {
-                              setCouponInput(e.target.value.toUpperCase());
+                              setCouponInput(e.target.value.toUpperCase().replace(/\s+/g, ''));
                               if (couponError) setCouponError('');
                             }}
                             onKeyDown={(e) => {
@@ -830,11 +835,12 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
                             type="button"
                             onClick={handleApplyCoupon}
                             disabled={!couponInput.trim()}
-                            className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed text-zinc-200 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold rounded-xl transition-colors cursor-pointer shadow-[0_0_12px_rgba(99,102,241,0.3)]"
                           >
                             Apply
                           </button>
                         </div>
+
                         {couponError && (
                           <div className="flex items-center gap-1.5 text-xs text-rose-400 bg-rose-950/30 border border-rose-500/20 px-3 py-1.5 rounded-lg">
                             <AlertCircle className="w-3.5 h-3.5 shrink-0" />
