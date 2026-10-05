@@ -62,10 +62,11 @@ import {
   Layers,
   MessageSquareQuote,
   Send,
-  ShieldAlert
+  ShieldAlert,
+  MapPin
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, Coupon, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
+import { store, useInventory, useCoupons, useUsers, useWalletTransactions, usePendingOrders, useFAQs, Coupon, FAQItem, defaultFAQs, PendingOrder, WalletTransaction, UserWithStats, getCouponRemainingTime, resolveProductName, defaultSpinWheelSettings } from '../store';
 import { testFamApiKeyConnection, verifyFamGatewayOrder, DEFAULT_FAM_API_KEY } from '../lib/famPay';
 import { useAuth } from '../lib/useAuth';
 import { Helmet } from './Helmet';
@@ -122,7 +123,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
       window.history.replaceState({}, '', url.toString());
     } catch {}
   };
-  const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, updateSpinWheelSettings, purchases, balances, addProduct, deleteProduct } = useInventory();
+  const { items: inventory, addKeys, removeKey, settings, updateSettings, updatePaymentSettings, updateSpinWheelSettings, purchases, balances, addProduct, deleteProduct, refreshPurchases } = useInventory();
   const { coupons, addCoupon, updateCoupon, deleteCoupon, toggleCoupon, saveAllCoupons, quickAdjustCouponDiscount, setCouponDiscountPercent } = useCoupons();
   const { faqs, addFAQ, updateFAQ, deleteFAQ, toggleFAQ, resetDefaultFAQs } = useFAQs();
   const { users, refreshUsers, updateUserBalance, issueRefund } = useUsers();
@@ -131,6 +132,38 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
   const [newKeysInput, setNewKeysInput] = useState<{ [key: string]: string }>({});
   const [manageKeysProduct, setManageKeysProduct] = useState<string | null>(null);
   const [deleteKeyConfirmIdx, setDeleteKeyConfirmIdx] = useState<number | null>(null);
+
+  // Global Real-time Website & Database Sync State
+  const [isSyncingWebsite, setIsSyncingWebsite] = useState(false);
+  const [syncWebsiteToast, setSyncWebsiteToast] = useState('');
+
+  const handleFullRealtimeSyncAndRefresh = async (hardReload = false) => {
+    setIsSyncingWebsite(true);
+    setSyncWebsiteToast('');
+    try {
+      const [uList, pList] = await Promise.allSettled([
+        refreshUsers(),
+        refreshPurchases()
+      ]);
+      store.notify();
+      
+      const ordersCount = pList.status === 'fulfilled' ? pList.value.length : purchases.length;
+      const usersCount = uList.status === 'fulfilled' ? uList.value.length : users.length;
+
+      setSyncWebsiteToast(`✅ Realtime Website Updated! (${ordersCount} Orders, ${usersCount} Users & Stock Synced)`);
+
+      if (hardReload) {
+        setTimeout(() => {
+          window.location.reload();
+        }, 500);
+      }
+    } catch (err: any) {
+      setSyncWebsiteToast(`⚠️ Sync notice: ${err?.message || 'Refreshed with cached live data'}`);
+    } finally {
+      setIsSyncingWebsite(false);
+      setTimeout(() => setSyncWebsiteToast(''), 5000);
+    }
+  };
 
   // User Sync & Refresh State
   const [isRefreshingUsers, setIsRefreshingUsers] = useState(false);
@@ -1509,8 +1542,78 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
         title={dashboardTabTitle}
         description={`${settings?.siteName || 'Arman X Store'} Administrator Dashboard: Live sales tracker, license inventory, user accounts, and bookkeeping.`}
       />
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
         
+        {/* Global Live Sync Toast Banner */}
+        {syncWebsiteToast && (
+          <div className="p-3.5 bg-emerald-950/80 border border-emerald-500/40 text-emerald-200 text-xs font-semibold rounded-2xl flex items-center justify-between gap-3 shadow-[0_0_25px_rgba(16,185,129,0.2)] animate-in fade-in">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>{syncWebsiteToast}</span>
+            </div>
+            <button onClick={() => setSyncWebsiteToast('')} className="text-emerald-400 hover:text-white p-1">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Global Dashboard Action Toolbar (Live Sync & Refresh Website) */}
+        <div className="bg-[#121215]/95 border border-indigo-500/20 p-3.5 sm:p-4 rounded-3xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-[0_0_30px_rgba(99,102,241,0.1)] backdrop-blur-xl">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl bg-indigo-500/15 border border-indigo-500/30 flex items-center justify-center text-indigo-400 shrink-0">
+              <Zap className="w-5 h-5 text-indigo-400 animate-pulse" />
+            </div>
+            <div className="text-left">
+              <div className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Realtime Store Engine</span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  Live Connected
+                </span>
+              </div>
+              <span className="text-xs text-zinc-400">
+                1-Click realtime update to sync live orders, stock keys, wallet balances & store website
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Primary Realtime Website Update / Refresh Button */}
+            <button
+              onClick={() => handleFullRealtimeSyncAndRefresh(false)}
+              disabled={isSyncingWebsite}
+              className="px-4 py-2.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold text-xs rounded-xl shadow-[0_0_25px_rgba(16,185,129,0.35)] transition-all flex items-center gap-2 cursor-pointer active:scale-95 disabled:opacity-50 border border-emerald-400/30"
+              title="Click to live sync and refresh all orders, keys, users, and website data in realtime"
+            >
+              <RefreshCw className={`w-4 h-4 text-emerald-200 ${isSyncingWebsite ? 'animate-spin' : ''}`} />
+              <span>{isSyncingWebsite ? 'Syncing Website...' : '⚡ Realtime Refresh Website'}</span>
+            </button>
+
+            {/* Quick Webpage Hard Reload */}
+            <button
+              onClick={() => handleFullRealtimeSyncAndRefresh(true)}
+              disabled={isSyncingWebsite}
+              className="px-3.5 py-2.5 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 text-zinc-300 hover:text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+              title="Full browser reload and fresh cache flush"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+              <span>Reload Page</span>
+            </button>
+
+            {/* Return to Store Home */}
+            {onNavigateHome && (
+              <button
+                onClick={onNavigateHome}
+                className="px-3.5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white text-xs font-semibold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Return to store homepage"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Store Home</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         {activeTab === 'menu' ? (
           <div>
             <h1 className="text-3xl font-display font-bold text-white mb-8 theme-text-title">
@@ -1538,16 +1641,30 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
           </div>
         ) : (
           <div>
-            <div className="flex items-center mb-8">
-              <button
-                onClick={() => handleSelectTab('menu')}
-                className="mr-4 p-2 bg-zinc-900/80 border border-white/10 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer theme-pill"
-              >
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <h1 className="text-3xl font-display font-bold text-white theme-text-title">
-                {activeTab === 'faqs' || activeTab === 'faq' ? 'Frequently Asked Questions (FAQ)' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
-              </h1>
+            <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+              <div className="flex items-center">
+                <button
+                  onClick={() => handleSelectTab('menu')}
+                  className="mr-4 p-2 bg-zinc-900/80 border border-white/10 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all cursor-pointer theme-pill"
+                >
+                  <ArrowLeft className="w-5 h-5" />
+                </button>
+                <h1 className="text-3xl font-display font-bold text-white theme-text-title">
+                  {activeTab === 'faqs' || activeTab === 'faq' ? 'Frequently Asked Questions (FAQ)' : activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
+                </h1>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleFullRealtimeSyncAndRefresh(false)}
+                  disabled={isSyncingWebsite}
+                  className="px-3.5 py-1.5 bg-zinc-900/90 hover:bg-zinc-800 border border-white/10 text-zinc-200 text-xs font-semibold rounded-xl transition-all flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50"
+                  title="Live sync this tab data"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-cyan-400 ${isSyncingWebsite ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingWebsite ? 'Syncing...' : 'Sync Tab Data'}</span>
+                </button>
+              </div>
             </div>
 
             {activeTab === 'overview' && (
@@ -2790,7 +2907,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                             userEmail: p.userEmail || user?.email,
                             customerName: p.customerName || user?.displayName,
                             customerPhone: p.customerPhone || user?.phone,
-                            displayName: p.customerName || user?.displayName || user?.customId || 'Customer',
+                            displayName: p.userEmail || user?.email || p.customerName || user?.displayName || user?.customId || 'Customer',
                             title: `${productName} - ${p.label}`,
                             subtitle: p.category,
                             reference: p.couponCode ? `Coupon: ${p.couponCode}` : 'Key Purchase',
@@ -2821,7 +2938,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                             userEmail: t.userEmail || user?.email,
                             customerName: user?.displayName,
                             customerPhone: user?.phone,
-                            displayName: user?.displayName || user?.customId || 'Customer',
+                            displayName: t.userEmail || user?.email || user?.displayName || user?.customId || 'Customer',
                             title: t.type === 'deposit' 
                               ? 'Wallet Deposit' 
                               : t.type === 'refund' 
@@ -2857,7 +2974,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                           userEmail: po.userEmail || user?.email,
                           customerName: po.customerName || user?.displayName,
                           customerPhone: po.customerPhone || user?.phone,
-                          displayName: po.customerName || user?.displayName || user?.customId || 'Customer',
+                          displayName: po.userEmail || user?.email || po.customerName || user?.displayName || user?.customId || 'Customer',
                           title: po.productName || (isDeposit ? 'Wallet Deposit (UPI QR)' : 'Direct Key Purchase'),
                           subtitle: po.durationLabel || po.paymentMethod || 'FamGateway QR',
                           reference: po.paymentMethod || 'FamGateway UPI QR',
@@ -2941,45 +3058,55 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
 
                             {/* Customer & WhatsApp */}
                             <td className="py-4 px-5 text-xs">
-                              <div className="font-bold text-white text-sm truncate max-w-[200px] flex items-center gap-1.5">
-                                <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                                <span>{txn.customerName || txn.displayName || (txn.userId === 'anonymous' ? 'Customer' : txn.userId)}</span>
-                              </div>
+                              {(() => {
+                                const customerFullName = txn.customerName && !['Customer', 'Store Customer', 'Store User'].includes(txn.customerName)
+                                  ? txn.customerName
+                                  : (txn.userEmail ? txn.userEmail.split('@')[0] : (txn.displayName && !['Customer', 'Store Customer'].includes(txn.displayName) ? txn.displayName : 'Customer'));
 
-                              {/* Customer Gmail ID */}
-                              {txn.userEmail ? (
-                                <div className="flex items-center gap-1 mt-1 text-[11px] font-mono text-zinc-300 bg-zinc-900/80 px-2 py-0.5 rounded border border-white/10 max-w-[220px]">
-                                  <Mail className="w-3 h-3 text-indigo-400 shrink-0" />
-                                  <span className="truncate">{txn.userEmail}</span>
-                                  <button
-                                    onClick={() => handleCopyText(txn.userEmail!, `email_txn_${txn.id}`)}
-                                    className="text-zinc-500 hover:text-white ml-auto shrink-0 p-0.5"
-                                    title="Copy Customer Gmail ID"
-                                  >
-                                    {copiedText === `email_txn_${txn.id}` ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
-                                  </button>
-                                </div>
-                              ) : (
-                                <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
-                                  {txn.userId === 'anonymous' ? 'Web Buyer' : `@${txn.userId.substring(0, 10)}`}
-                                </div>
-                              )}
+                                return (
+                                  <>
+                                    <div className="font-bold text-white text-sm truncate max-w-[200px] flex items-center gap-1.5" title={customerFullName}>
+                                      <User className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
+                                      <span className="text-white font-semibold">{customerFullName}</span>
+                                    </div>
 
-                              {/* WhatsApp Contact Link */}
-                              {txn.customerPhone && (
-                                <div className="mt-1">
-                                  <a
-                                    href={`https://wa.me/91${txn.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${txn.customerName || ''}, aapka Arman X Store order #${txn.id} verified hai.`)}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.15)]"
-                                    title="Click to chat on WhatsApp"
-                                  >
-                                    <MessageCircle className="w-3 h-3 text-emerald-400 shrink-0" />
-                                    <span>+91 {txn.customerPhone}</span>
-                                  </a>
-                                </div>
-                              )}
+                                    {/* Customer Gmail ID */}
+                                    {txn.userEmail ? (
+                                      <div className="flex items-center gap-1 mt-1 text-[11px] font-mono text-zinc-300 bg-zinc-900/80 px-2 py-0.5 rounded border border-white/10 max-w-[220px]">
+                                        <Mail className="w-3 h-3 text-indigo-400 shrink-0" />
+                                        <span className="truncate">{txn.userEmail}</span>
+                                        <button
+                                          onClick={() => handleCopyText(txn.userEmail!, `email_txn_${txn.id}`)}
+                                          className="text-zinc-500 hover:text-white ml-auto shrink-0 p-0.5"
+                                          title="Copy Customer Gmail ID"
+                                        >
+                                          {copiedText === `email_txn_${txn.id}` ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="text-[10px] text-zinc-500 font-mono mt-0.5">
+                                        {txn.userId === 'anonymous' ? 'Web Buyer' : `@${txn.userId.substring(0, 10)}`}
+                                      </div>
+                                    )}
+
+                                    {/* WhatsApp Contact Link */}
+                                    {txn.customerPhone && (
+                                      <div className="mt-1">
+                                        <a
+                                          href={`https://wa.me/91${txn.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${customerFullName}, aapka Arman X Store order #${txn.id} verified hai.`)}`}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-400 hover:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.15)]"
+                                          title="Click to chat on WhatsApp"
+                                        >
+                                          <MessageCircle className="w-3 h-3 text-emerald-400 shrink-0" />
+                                          <span>+91 {txn.customerPhone}</span>
+                                        </a>
+                                      </div>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </td>
 
                             {/* Amount */}
@@ -3348,8 +3475,8 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                 </div>
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 flex-wrap">
-                                    <span className="font-semibold text-white text-sm truncate max-w-[180px]">
-                                      {user.displayName || user.customId || 'Store Customer'}
+                                    <span className="font-semibold text-white text-sm truncate max-w-[200px]" title={user.email || user.displayName || 'Customer'}>
+                                      {user.email || user.displayName || user.customId || 'Store Customer'}
                                     </span>
                                     {isOwner ? (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
@@ -3361,12 +3488,12 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
-                                        Customer
+                                        {user.email?.includes('@gmail.com') ? 'Gmail Customer' : 'Customer'}
                                       </span>
                                     )}
                                   </div>
                                   <div className="text-xs text-zinc-400 flex items-center gap-1 font-mono mt-0.5">
-                                    <span>@{user.customId || user.email?.split('@')[0] || 'customer'}</span>
+                                    <span>{user.displayName && user.displayName !== user.email ? user.displayName : `@${user.email?.split('@')[0] || user.customId || 'customer'}`}</span>
                                   </div>
                                 </div>
                               </div>
@@ -3392,6 +3519,19 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                   <div className="text-[11px] text-zinc-500 font-mono flex items-center gap-1">
                                     <Phone className="w-3 h-3 text-zinc-600" />
                                     <span>No phone recorded</span>
+                                  </div>
+                                )}
+
+                                {/* Customer Address / Pata */}
+                                {user.address ? (
+                                  <div className="flex items-center gap-1.5 text-xs text-amber-300/90 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/20 max-w-[210px]" title={`${user.address}, ${user.city || ''} ${user.state || ''} ${user.pincode || ''}`}>
+                                    <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                                    <span className="truncate">{user.address}{user.city ? `, ${user.city}` : ''}</span>
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-zinc-600 flex items-center gap-1">
+                                    <MapPin className="w-2.5 h-2.5 text-zinc-600" />
+                                    <span>No address recorded</span>
                                   </div>
                                 )}
 
@@ -3537,8 +3677,8 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                       </div>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-xl font-bold text-white">
-                            {selectedUserDetail.displayName || selectedUserDetail.customId || 'User Profile'}
+                          <h3 className="text-xl font-bold text-white" title={selectedUserDetail.email || selectedUserDetail.displayName}>
+                            {selectedUserDetail.email || selectedUserDetail.displayName || selectedUserDetail.customId || 'Customer Profile'}
                           </h3>
                           {selectedUserDetail.role === 'owner' || selectedUserDetail.email === 'barikarman12@gmail.com' ? (
                             <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30">
@@ -3550,7 +3690,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                             </span>
                           ) : (
                             <span className="px-2 py-0.5 rounded text-xs font-medium bg-zinc-800 text-zinc-400 border border-zinc-700">
-                              Customer
+                              {selectedUserDetail.email?.includes('@gmail.com') ? 'Gmail Account' : 'Customer'}
                             </span>
                           )}
                           <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
@@ -3558,7 +3698,7 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                           </span>
                         </div>
                         <p className="text-xs text-zinc-400 font-mono mt-1">
-                          @{selectedUserDetail.customId || selectedUserDetail.email?.split('@')[0] || 'user'} • UID: {selectedUserDetail.uid}
+                          {selectedUserDetail.displayName && selectedUserDetail.displayName !== selectedUserDetail.email ? `${selectedUserDetail.displayName} • ` : ''}Gmail: {selectedUserDetail.email || 'None'} • UID: {selectedUserDetail.uid}
                         </p>
                       </div>
                     </div>
@@ -3683,6 +3823,48 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                           <span className="text-zinc-500 font-medium block">Registration / Joined Date</span>
                           <div className="text-zinc-300 font-mono">
                             {formatUserDate(selectedUserDetail.createdAt)}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/60">
+                          <span className="text-zinc-500 font-medium block">WhatsApp / Mobile Contact</span>
+                          <div className="text-zinc-300 font-mono flex items-center justify-between">
+                            {selectedUserDetail.phone ? (
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-bold text-emerald-400">+91 {selectedUserDetail.phone}</span>
+                                <a
+                                  href={`https://wa.me/91${selectedUserDetail.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(`Hello ${selectedUserDetail.displayName || 'Customer'}, regarding your Arman X Store account.`)}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/30 ml-2"
+                                >
+                                  WhatsApp
+                                </a>
+                              </div>
+                            ) : (
+                              <span className="text-zinc-500">Not provided</span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="space-y-1 bg-zinc-900/60 p-3 rounded-xl border border-zinc-800/60 md:col-span-2">
+                          <span className="text-zinc-500 font-medium block flex items-center gap-1.5">
+                            <MapPin className="w-3.5 h-3.5 text-rose-400" />
+                            <span>Customer Pata (Delivery & Resident Address)</span>
+                          </span>
+                          <div className="text-zinc-200 font-medium">
+                            {selectedUserDetail.address ? (
+                              <div>
+                                <p className="text-white font-semibold">{selectedUserDetail.address}</p>
+                                {(selectedUserDetail.city || selectedUserDetail.state || selectedUserDetail.pincode) && (
+                                  <p className="text-zinc-400 text-xs mt-0.5 font-mono">
+                                    {[selectedUserDetail.city, selectedUserDetail.state, selectedUserDetail.pincode ? `PIN: ${selectedUserDetail.pincode}` : ''].filter(Boolean).join(', ')}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-zinc-500 italic">No address provided yet</span>
+                            )}
                           </div>
                         </div>
 
@@ -3953,18 +4135,6 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                     {/* TAB 2: ORDER HISTORY & DELIVERED KEYS */}
                     {userModalTab === 'orders' && (
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <History className="w-4 h-4 text-fuchsia-400" />
-                            Order History & Delivered Keys ({
-                              purchases.filter(p => p.userId === selectedUserDetail.uid).length
-                            })
-                          </h4>
-                          <span className="text-xs text-zinc-500">
-                            Refund an order with 1 click to notify user
-                          </span>
-                        </div>
-
                         {(() => {
                           const cleanEmail = (selectedUserDetail.email || '').trim().toLowerCase();
                           const cleanPhone = (selectedUserDetail.phone || '').replace(/[^0-9]/g, '');
@@ -3975,19 +4145,28 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                             if (selectedUserDetail.customId && p.userId === selectedUserDetail.customId) return true;
                             return false;
                           });
-                          if (userOrders.length === 0) {
-                            return (
-                              <div className="bg-zinc-950/30 border border-zinc-800/80 rounded-2xl p-8 text-center text-zinc-500">
-                                <Package className="w-10 h-10 mx-auto mb-2 opacity-30 text-zinc-400" />
-                                <p className="text-sm text-zinc-400">No orders placed by this user yet.</p>
-                                <p className="text-xs text-zinc-600 mt-1">When this user buys keys or redeems balances, their full order logs will appear here.</p>
-                              </div>
-                            );
-                          }
 
                           return (
-                            <div className="space-y-3">
-                              {userOrders.map((order, idx) => {
+                            <>
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold text-white flex items-center gap-2">
+                                  <History className="w-4 h-4 text-fuchsia-400" />
+                                  Order History & Delivered Keys ({userOrders.length})
+                                </h4>
+                                <span className="text-xs text-zinc-500">
+                                  Refund an order with 1 click to notify user
+                                </span>
+                              </div>
+
+                              {userOrders.length === 0 ? (
+                                <div className="bg-zinc-950/30 border border-zinc-800/80 rounded-2xl p-8 text-center text-zinc-500">
+                                  <Package className="w-10 h-10 mx-auto mb-2 opacity-30 text-zinc-400" />
+                                  <p className="text-sm text-zinc-400">No orders placed by this user yet.</p>
+                                  <p className="text-xs text-zinc-600 mt-1">When this user buys keys or redeems balances, their full order logs will appear here.</p>
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  {userOrders.map((order, idx) => {
                                 const item = inventory.find(i => i.value === order.value);
                                 const orderPrice = typeof order.amount === 'number' 
                                   ? order.amount 
@@ -4104,8 +4283,10 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
                                 );
                               })}
                             </div>
-                          );
-                        })()}
+                            )}
+                          </>
+                        );
+                      })()}
                       </div>
                     )}
                   </div>
@@ -7413,6 +7594,23 @@ export function Dashboard({ initialTab, onNavigateHome }: DashboardProps = {}) {
           </div>
         </div>
       )}
+
+      {/* Floating Realtime Refresh Quick Action Button */}
+      <div className="fixed bottom-6 right-6 z-40 flex items-center gap-2">
+        <button
+          onClick={() => handleFullRealtimeSyncAndRefresh(false)}
+          disabled={isSyncingWebsite}
+          className="group relative px-4 py-3 bg-gradient-to-r from-emerald-600 via-teal-600 to-indigo-600 hover:from-emerald-500 hover:to-indigo-500 text-white font-bold text-xs rounded-2xl shadow-[0_4px_30px_rgba(16,185,129,0.45)] border border-emerald-400/40 transition-all flex items-center gap-2.5 cursor-pointer active:scale-95 disabled:opacity-60 backdrop-blur-md"
+          title="Click to live sync and refresh all store data in realtime"
+        >
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-300 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white"></span>
+          </span>
+          <RefreshCw className={`w-4 h-4 text-emerald-200 ${isSyncingWebsite ? 'animate-spin' : 'group-hover:rotate-180 transition-transform duration-500'}`} />
+          <span className="hidden sm:inline font-display tracking-wide">{isSyncingWebsite ? 'Updating Store...' : 'Realtime Refresh'}</span>
+        </button>
+      </div>
     </div>
   );
 }

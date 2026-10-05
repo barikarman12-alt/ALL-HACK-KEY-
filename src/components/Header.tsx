@@ -1,4 +1,4 @@
-import { LayoutDashboard, Home, LogIn, LogOut, Wallet, Plus, Key, Bell, Sun, Moon, Menu, X, Sparkles, Gift, Crown, ShieldCheck, HelpCircle } from 'lucide-react';
+import { LayoutDashboard, Home, LogIn, LogOut, Wallet, Plus, Key, Bell, Sun, Moon, Menu, X, Sparkles, Gift, Crown, ShieldCheck, HelpCircle, MapPin, User } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { logOutMock } from '../lib/useAuth';
 import { useAuth } from '../lib/useAuth';
@@ -7,6 +7,7 @@ import { useTheme } from '../lib/theme';
 import { AddBalanceModal } from './AddBalanceModal';
 import { NotificationsModal } from './NotificationsModal';
 import { SpinWheelModal } from './SpinWheelModal';
+import { CustomerAddressModal } from './CustomerAddressModal';
 
 interface HeaderProps {
   currentPage?: 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received' | 'verify-payment';
@@ -19,6 +20,7 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
   const [isAddBalanceOpen, setIsAddBalanceOpen] = useState(false);
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isSpinWheelOpen, setIsSpinWheelOpen] = useState(false);
+  const [isAddressModalOpen, setIsAddressModalOpen] = useState(false);
   const { currentUser, isAdmin } = useAuth();
   const { balance } = useBalance(currentUser?.uid);
   const { settings } = useInventory(currentUser?.uid, currentUser?.email || undefined);
@@ -188,48 +190,30 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                 </button>
 
                 {/* Profile & Logout */}
-                <div className="flex items-center space-x-2.5 pl-1">
-                  {/* Distinct Admin / Owner Badge */}
-                  {isOwner && (
-                    <button 
-                      onClick={() => onNavigate?.('dashboard')}
-                      className="hidden lg:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/25 via-yellow-500/20 to-amber-500/25 border border-amber-400/60 shadow-[0_0_15px_rgba(245,158,11,0.35)] hover:border-amber-300 hover:shadow-[0_0_20px_rgba(245,158,11,0.5)] transition-all cursor-pointer group active:scale-95"
-                      title="You have Verified Owner & Administrator privileges. Click to open Dashboard."
-                    >
-                      <Crown className="w-3.5 h-3.5 text-amber-400 fill-amber-400/40 group-hover:rotate-12 transition-transform" />
-                      <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 drop-shadow-[0_0_8px_rgba(245,158,11,0.5)]">
-                        Owner / Admin
-                      </span>
-                      <span className="relative flex h-2 w-2 ml-0.5">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-                      </span>
-                    </button>
-                  )}
-
-                  {/* Avatar with Owner Ring */}
+                <div className="flex items-center space-x-2.5 pl-1.5 py-1 px-2.5 rounded-2xl bg-zinc-900/70 border border-white/10">
+                  {/* Avatar */}
                   <div 
-                    className="relative cursor-pointer group" 
+                    className="relative cursor-pointer group shrink-0" 
                     onClick={() => isOwner && onNavigate?.('dashboard')}
-                    title={isOwner ? "Owner Profile (Click for Dashboard)" : "User Profile"}
+                    title={isOwner ? "Owner Profile (Click for Dashboard)" : `Logged in as ${currentUser.email || currentUser.displayName || 'User'}`}
                   >
                     {currentUser.photoURL ? (
                       <img 
                         src={currentUser.photoURL} 
                         alt="Profile" 
-                        className={`w-7 h-7 rounded-full object-cover transition-transform group-hover:scale-105 ${
+                        className={`w-8 h-8 rounded-full object-cover transition-transform group-hover:scale-105 ${
                           isOwner 
                             ? 'ring-2 ring-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.6)]' 
-                            : 'border border-white/20'
+                            : 'ring-1 ring-white/20'
                         }`} 
                       />
                     ) : (
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[11px] text-white font-bold transition-transform group-hover:scale-105 ${
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs text-white font-bold transition-transform group-hover:scale-105 ${
                         isOwner 
                           ? 'bg-gradient-to-tr from-amber-600 via-amber-500 to-yellow-400 text-black ring-2 ring-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.6)] font-black' 
-                          : 'bg-zinc-700'
+                          : 'bg-indigo-600/80 text-white'
                       }`}>
-                        {currentUser.displayName?.[0] || 'U'}
+                        {(currentUser.displayName || currentUser.email || 'U')[0].toUpperCase()}
                       </div>
                     )}
                     {isOwner && (
@@ -239,23 +223,47 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                     )}
                   </div>
 
-                  <div className="flex flex-col text-left max-w-[130px] sm:max-w-[200px]">
-                    <span className="text-xs font-bold text-white leading-tight flex items-center gap-1 truncate">
-                      {currentUser.displayName || currentUser.customId || 'User'}
-                    </span>
-                    {currentUser.email && (
-                      <span className="text-[10px] text-zinc-300 font-mono leading-tight truncate" title={currentUser.email}>
-                        {currentUser.email}
+                  {/* Profile Info: Gmail ID, Display Name & Role */}
+                  <div className="flex flex-col text-left max-w-[170px] sm:max-w-[240px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-bold text-white leading-tight truncate" title={currentUser.email || currentUser.displayName || 'Google Account'}>
+                        {currentUser.email || currentUser.displayName || currentUser.customId || 'Google User'}
                       </span>
-                    )}
-                    {isOwner && (
-                      <span className="text-[10px] font-extrabold text-amber-400 font-mono leading-none tracking-tight">
-                        Super Admin
+                      {isOwner ? (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-amber-500/25 text-amber-300 border border-amber-500/40 shrink-0">
+                          Admin
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+                          {currentUser.email?.includes('@gmail.com') ? 'Gmail' : 'Customer'}
+                        </span>
+                      )}
+                    </div>
+                    {currentUser.displayName && currentUser.displayName !== currentUser.email ? (
+                      <span className="text-[10px] text-zinc-400 leading-tight truncate" title={currentUser.displayName}>
+                        {currentUser.displayName}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-zinc-400 font-mono leading-tight truncate">
+                        {currentUser.email ? `ID: ${currentUser.email.split('@')[0]}` : `ID: ${currentUser.uid.substring(0, 10)}...`}
                       </span>
                     )}
                   </div>
 
-                  <button onClick={logOutMock} className="text-zinc-400 hover:text-white transition-colors p-1.5 hover:bg-white/5 rounded-full cursor-pointer ml-0.5" title="Log out">
+                  {/* Profile Name & Number Button */}
+                  <button
+                    onClick={() => setIsAddressModalOpen(true)}
+                    className="p-1.5 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-emerald-400 transition-colors border border-white/5 cursor-pointer ml-0.5"
+                    title="Apna Naam & WhatsApp Number Update Karein"
+                  >
+                    <User className="w-3.5 h-3.5 text-cyan-400 hover:text-cyan-300" />
+                  </button>
+
+                  <button 
+                    onClick={logOutMock} 
+                    className="text-zinc-400 hover:text-rose-400 transition-colors p-1.5 hover:bg-white/5 rounded-full cursor-pointer ml-0.5" 
+                    title="Log out"
+                  >
                     <LogOut className="w-4 h-4" />
                   </button>
                 </div>
@@ -380,33 +388,87 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                   </div>
                 )}
 
-                <div className="flex items-center justify-between px-2 py-1 text-sm font-medium text-zinc-300">
-                  <div className="flex items-center gap-2.5">
-                    <div className="relative">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-white ${
-                        isOwner ? 'bg-gradient-to-tr from-amber-600 via-amber-500 to-yellow-400 text-black ring-2 ring-amber-400 font-black' : 'bg-zinc-800'
-                      }`}>
-                        {currentUser.displayName?.[0] || 'U'}
-                      </div>
-                      {isOwner && (
-                        <span className="absolute -bottom-1 -right-1 text-[9px] leading-none">👑</span>
-                      )}
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-white font-bold block">{currentUser.displayName}</span>
+                <div className="p-3 rounded-2xl bg-zinc-900/90 border border-white/10 flex flex-col gap-2.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <div className="relative shrink-0">
+                        {currentUser.photoURL ? (
+                          <img 
+                            src={currentUser.photoURL} 
+                            alt="" 
+                            className={`w-9 h-9 rounded-full object-cover ${
+                              isOwner ? 'ring-2 ring-amber-400' : 'ring-1 ring-white/20'
+                            }`} 
+                          />
+                        ) : (
+                          <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-xs ${
+                            isOwner ? 'bg-gradient-to-tr from-amber-600 via-amber-500 to-yellow-400 text-black ring-2 ring-amber-400 font-black' : 'bg-indigo-600'
+                          }`}>
+                            {(currentUser.displayName || currentUser.email || 'U')[0].toUpperCase()}
+                          </div>
+                        )}
                         {isOwner && (
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-amber-500/25 text-amber-300 border border-amber-500/40">
-                            Owner
-                          </span>
+                          <span className="absolute -bottom-1 -right-1 text-[10px] leading-none">👑</span>
                         )}
                       </div>
-                      <span className="text-[11px] text-zinc-400">{currentUser.email}</span>
+                      <div className="text-left">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-white font-bold text-xs block truncate max-w-[170px]" title={currentUser.email || currentUser.displayName || 'Google Account'}>
+                            {currentUser.email || currentUser.displayName || currentUser.customId || 'Google User'}
+                          </span>
+                          {isOwner ? (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-amber-500/25 text-amber-300 border border-amber-500/40">
+                              Admin
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.2 rounded text-[9px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              {currentUser.email?.includes('@gmail.com') ? 'Gmail' : 'Customer'}
+                            </span>
+                          )}
+                        </div>
+                        {currentUser.displayName && currentUser.displayName !== currentUser.email && (
+                          <span className="text-[11px] text-zinc-400 block truncate max-w-[190px]">
+                            {currentUser.displayName}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-zinc-400 font-mono block truncate">
+                          {currentUser.email ? `Gmail: ${currentUser.email}` : `ID: ${currentUser.uid.substring(0, 12)}...`}
+                        </span>
+                      </div>
                     </div>
+                    <button 
+                      onClick={() => { logOutMock(); setIsMenuOpen(false); }} 
+                      className="text-xs text-rose-400 hover:text-rose-300 font-medium px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all cursor-pointer"
+                    >
+                      Sign Out
+                    </button>
                   </div>
-                  <button onClick={logOutMock} className="text-xs text-rose-400 hover:text-rose-300 font-medium">
-                    Sign Out
-                  </button>
+
+                  {/* Wallet quick view in mobile menu */}
+                  <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs">
+                    <div className="flex items-center gap-1.5 text-zinc-400">
+                      <Wallet className="w-3.5 h-3.5 text-indigo-400" />
+                      <span>Wallet: <strong className="text-white font-mono">₹{balance}</strong></span>
+                    </div>
+                    <button 
+                      onClick={() => { setIsAddBalanceOpen(true); setIsMenuOpen(false); }}
+                      className="text-[11px] text-indigo-300 hover:text-indigo-200 font-bold flex items-center gap-1 bg-indigo-500/20 px-2 py-0.5 rounded-md border border-indigo-500/30 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add Balance
+                    </button>
+                  </div>
+
+                  {/* Customer Name & Phone Profile Quick Button */}
+                  <div className="pt-2 border-t border-white/5 flex items-center justify-between text-xs">
+                    <button
+                      onClick={() => { setIsAddressModalOpen(true); setIsMenuOpen(false); }}
+                      className="w-full py-1.5 px-3 bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-xl text-xs font-semibold transition-all flex items-center justify-center gap-2 border border-white/10 cursor-pointer"
+                    >
+                      <User className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Mera Naam & Mobile Number</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -510,6 +572,10 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
         onNavigateToBuyKey={() => onNavigate?.('home')} 
       />
     )}
+    <CustomerAddressModal 
+      isOpen={isAddressModalOpen} 
+      onClose={() => setIsAddressModalOpen(false)} 
+    />
     </>
   );
 }

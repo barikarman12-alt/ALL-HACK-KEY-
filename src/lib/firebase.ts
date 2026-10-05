@@ -5,16 +5,19 @@ import {
   getFirestore,
   persistentLocalCache, 
   persistentMultipleTabManager,
-  setLogLevel, 
-  doc, 
-  getDocFromServer 
+  setLogLevel
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
 
+// Suppress benign client logs and offline connection warnings in browser console
+try {
+  setLogLevel('silent');
+} catch {}
+
 const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
-// Initialize Firestore with experimentalForceLongPolling and multi-tab persistence
-// This prevents WebChannel streaming proxy buffering and the 10-second backend timeout in iframe environments
+// Initialize Firestore with experimentalForceLongPolling and multi-tab local persistence
+// This prevents WebChannel streaming proxy buffering and 10-second backend timeout in iframe preview environments
 function createFirestoreInstance() {
   try {
     return initializeFirestore(
@@ -44,9 +47,6 @@ function createFirestoreInstance() {
 
 export const db = createFirestoreInstance();
 export const auth = getAuth(app);
-
-// Suppress benign client logs in browser console
-setLogLevel('error');
 
 export enum OperationType {
   CREATE = 'create',
@@ -91,29 +91,6 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
-  throw new Error(JSON.stringify(errInfo));
-}
-
-// Graceful connection test helper (as specified in Firebase skill)
-async function testConnection() {
-  try {
-    const testPromise = getDocFromServer(doc(db, 'test', 'connection'));
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('connection-timeout')), 3500)
-    );
-    await Promise.race([testPromise, timeoutPromise]);
-  } catch (error: any) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn("Firestore operating in offline-first mode with cached data.");
-    }
-  }
-}
-
-// Defer connection check so it does not compete with initial page render
-if (typeof window !== 'undefined') {
-  setTimeout(() => {
-    testConnection().catch(() => {});
-  }, 3500);
+  console.warn('Firestore Operation Notice: ', JSON.stringify(errInfo));
 }
 

@@ -20,21 +20,8 @@ export function PurchaseHistoryModal({ onClose }: PurchaseHistoryModalProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
-  // User personal purchases including device local purchases
-  const userPurchases = (purchases && purchases.length > 0)
-    ? purchases
-    : allPurchases.filter(p => {
-        if (currentUser) {
-          const uidMatch = currentUser.uid && p.userId === currentUser.uid;
-          const emailMatch = currentUser.email && p.userEmail && p.userEmail.toLowerCase() === currentUser.email.toLowerCase();
-          if (uidMatch || emailMatch) return true;
-        }
-        const cleanPhone = (localStorage.getItem('customer_phone') || '').replace(/[^0-9]/g, '');
-        if (cleanPhone && p.customerPhone && p.customerPhone.replace(/[^0-9]/g, '') === cleanPhone) return true;
-        const cleanEmail = (localStorage.getItem('customer_email') || '').trim().toLowerCase();
-        if (cleanEmail && p.userEmail && p.userEmail.trim().toLowerCase() === cleanEmail) return true;
-        return false;
-      });
+  // User personal purchases strictly for this user account / device
+  const userPurchases = purchases;
 
   const rawDisplayList = (activeTab === 'all' && isOwner)
     ? allPurchases

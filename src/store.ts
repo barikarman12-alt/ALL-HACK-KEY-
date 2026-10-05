@@ -212,6 +212,10 @@ export interface UserProfile {
   lastLoginAt?: string;
   balance?: number;
   phone?: string;
+  address?: string; // Street Address / Ghar ka pata
+  city?: string;
+  state?: string;
+  pincode?: string;
   status?: 'active' | 'suspended';
 }
 
@@ -1441,9 +1445,11 @@ export const store = {
 
   refreshPurchases: async (): Promise<PurchaseRecord[]> => {
     try {
-      const [colRes, docRes] = await Promise.allSettled([
+      const [colRes, docRes, pendingColRes, pendingDocRes] = await Promise.allSettled([
         getDocs(collection(db, 'purchases')),
-        getDoc(doc(db, 'appData', 'purchases'))
+        getDoc(doc(db, 'appData', 'purchases')),
+        getDocs(collection(db, 'pendingOrders')),
+        getDoc(doc(db, 'appData', 'pendingOrders'))
       ]);
 
       const map = new Map<string, PurchaseRecord>();
@@ -1466,6 +1472,61 @@ export const store = {
             map.set(id, { ...p, id });
           }
         });
+      }
+
+      // Merge from pendingOrders collection & doc if they have delivered keys or completed status
+      if (pendingColRes.status === 'fulfilled' && !pendingColRes.value.empty) {
+        pendingColRes.value.forEach(docSnap => {
+          const po = docSnap.data() as PendingOrder;
+          if (po && (po.deliveredKeys && po.deliveredKeys.length > 0)) {
+            const id = po.orderId || docSnap.id;
+            if (!map.has(id)) {
+              map.set(id, {
+                id,
+                userId: po.userId || 'anonymous',
+                userEmail: po.userEmail || '',
+                customerName: po.customerName || '',
+                customerPhone: po.customerPhone || '',
+                orderId: po.orderId,
+                value: po.durationValue || 'custom_key',
+                category: po.productName || 'VIP Key',
+                label: po.durationLabel || 'Active',
+                keys: po.deliveredKeys,
+                amount: po.amount,
+                couponCode: po.couponCode,
+                date: po.paidAt || po.createdAt || new Date().toISOString()
+              });
+            }
+          }
+        });
+      }
+
+      if (pendingDocRes.status === 'fulfilled' && pendingDocRes.value.exists()) {
+        const pData = pendingDocRes.value.data();
+        if (Array.isArray(pData?.orders)) {
+          pData.orders.forEach((po: PendingOrder) => {
+            if (po && (po.deliveredKeys && po.deliveredKeys.length > 0)) {
+              const id = po.orderId;
+              if (id && !map.has(id)) {
+                map.set(id, {
+                  id,
+                  userId: po.userId || 'anonymous',
+                  userEmail: po.userEmail || '',
+                  customerName: po.customerName || '',
+                  customerPhone: po.customerPhone || '',
+                  orderId: po.orderId,
+                  value: po.durationValue || 'custom_key',
+                  category: po.productName || 'VIP Key',
+                  label: po.durationLabel || 'Active',
+                  keys: po.deliveredKeys,
+                  amount: po.amount,
+                  couponCode: po.couponCode,
+                  date: po.paidAt || po.createdAt || new Date().toISOString()
+                });
+              }
+            }
+          });
+        }
       }
 
       try {
@@ -2238,9 +2299,10 @@ export const store = {
     const emailToUid = new Map<string, string>();
     const phoneToUid = new Map<string, string>();
     const customIdToUid = new Map<string, string>();
+    const keyToUid = new Map<string, string>();
 
     // Helper to register index mappings
-    const registerIndex = (uid: string, email?: string, phone?: string, customId?: string) => {
+    const registerIndex = (uid: string, email?: string, phone?: string, customId?: string, keys?: string[]) => {
       if (email && email.trim()) {
         const clean = email.trim().toLowerCase();
         emailToUid.set(clean, uid);
@@ -2252,14 +2314,21 @@ export const store = {
       if (customId && customId.trim()) {
         customIdToUid.set(customId.trim().toLowerCase(), uid);
       }
+      if (Array.isArray(keys)) {
+        keys.forEach(k => {
+          if (k && typeof k === 'string' && k.trim()) {
+            keyToUid.set(k.trim().toUpperCase(), uid);
+          }
+        });
+      }
     };
 
     // 1. Registered users from database / storage (Real authenticated & Google users)
     registeredUsers.forEach(u => {
       if (u && u.uid) {
-        const email = u.email || '';
-        const displayName = u.displayName || (email ? email.split('@')[0] : u.customId) || 'Customer';
-        const customId = u.customId || (email ? email.split('@')[0] : u.uid.substring(0, 8));
+        const email = (u.email || '').trim().toLowerCase();
+        const displayName = u.displayName || email || (email ? email.split('@')[0] : u.customId) || 'VIP Member';
+        const customId = u.customId || email || (email ? email.split('@')[0] : u.uid.substring(0, 8));
 
         userMap.set(u.uid, {
           ...u,
@@ -2271,6 +2340,10 @@ export const store = {
           totalSpent: 0,
           totalKeys: 0,
           phone: u.phone || '',
+          address: u.address || '',
+          city: u.city || '',
+          state: u.state || '',
+          pincode: u.pincode || '',
           lastKeys: []
         });
 
@@ -2282,9 +2355,9 @@ export const store = {
     Object.keys(balances || {}).forEach(uid => {
       if (uid && uid !== 'anonymous' && !userMap.has(uid)) {
         const isEmailUid = uid.includes('@');
-        const email = isEmailUid ? uid : '';
-        const customId = isEmailUid ? uid.split('@')[0] : uid.substring(0, 8);
-        const displayName = customId;
+        const email = isEmailUid ? uid.toLowerCase() : (registeredUsers.find(ru => ru.uid === uid)?.email || '').toLowerCase();
+        const customId = email || (isEmailUid ? uid.split('@')[0] : uid.substring(0, 8));
+        const displayName = email || customId;
 
         userMap.set(uid, {
           uid,
@@ -2306,105 +2379,122 @@ export const store = {
       }
     });
 
+    // Deduplicate purchases list so the exact same key or order ID is only processed once
+    const deduplicatedPurchases: PurchaseRecord[] = [];
+    const seenOrderIds = new Set<string>();
+    const seenKeySignatures = new Set<string>();
+
+    purchases.forEach(p => {
+      if (!p) return;
+      const orderKey = p.orderId || p.id;
+      const firstKey = (p.keys && p.keys.length > 0) ? p.keys[0].trim().toUpperCase() : null;
+      const signature = firstKey ? `${firstKey}_${p.category || ''}` : null;
+
+      if (orderKey && seenOrderIds.has(orderKey)) return;
+      if (signature && seenKeySignatures.has(signature)) return;
+
+      if (orderKey) seenOrderIds.add(orderKey);
+      if (signature) seenKeySignatures.add(signature);
+      deduplicatedPurchases.push(p);
+    });
+
     // Helper to find existing user for an order/purchase/transaction
-    const findUserIdForRecord = (userId?: string, userEmail?: string, customerPhone?: string): string | undefined => {
+    const findUserIdForRecord = (userId?: string, userEmail?: string, customerPhone?: string, keys?: string[]): string | undefined => {
       if (userId && userId !== 'anonymous' && userMap.has(userId)) return userId;
       const cleanEmail = (userEmail || '').trim().toLowerCase();
       if (cleanEmail && emailToUid.has(cleanEmail)) return emailToUid.get(cleanEmail);
       const cleanPhone = (customerPhone || '').replace(/[^0-9]/g, '');
       if (cleanPhone && phoneToUid.has(cleanPhone)) return phoneToUid.get(cleanPhone);
+      if (Array.isArray(keys)) {
+        for (const k of keys) {
+          if (k && keyToUid.has(k.trim().toUpperCase())) {
+            return keyToUid.get(k.trim().toUpperCase());
+          }
+        }
+      }
       if (userId && customIdToUid.has(userId.trim().toLowerCase())) return customIdToUid.get(userId.trim().toLowerCase());
       return undefined;
     };
 
-    // 3. Discover new customer accounts from purchases (guest checkouts & direct orders)
-    purchases.forEach(p => {
+    // 3. Process each purchase and accurately aggregate stats
+    deduplicatedPurchases.forEach(p => {
       const cleanPhone = (p.customerPhone || '').replace(/[^0-9]/g, '');
       const cleanEmail = (p.userEmail || '').trim().toLowerCase();
-      let matchedUid = findUserIdForRecord(p.userId, p.userEmail, p.customerPhone);
+      let matchedUid = findUserIdForRecord(p.userId, p.userEmail, p.customerPhone, p.keys);
 
       if (!matchedUid) {
         matchedUid = (p.userId && p.userId !== 'anonymous') 
           ? p.userId 
-          : (cleanEmail ? `email_${cleanEmail}` : (cleanPhone ? `phone_${cleanPhone}` : `cust_${p.id}`));
+          : (cleanEmail ? `email_${cleanEmail}` : (cleanPhone ? `phone_${cleanPhone}` : `cust_${p.id || (p.keys ? p.keys[0] : Date.now())}`));
       }
 
-      const existing = userMap.get(matchedUid);
-      const email = p.userEmail || existing?.email || '';
-      const customId = existing?.customId || (email ? email.split('@')[0] : cleanPhone) || (p.customerName ? p.customerName.replace(/\s+/g, '_').toLowerCase() : matchedUid.substring(0, 8));
-      const displayName = p.customerName || existing?.displayName || (email ? email.split('@')[0] : (cleanPhone ? `Customer (${cleanPhone})` : 'Store Customer'));
-      const phone = p.customerPhone || existing?.phone || '';
-      const currentBalance = balances[matchedUid] ?? (existing?.balance || 0);
+      let user = userMap.get(matchedUid);
 
-      if (!existing) {
-        userMap.set(matchedUid, {
+      const email = cleanEmail || user?.email || '';
+      const customId = user?.customId || email || (email ? email.split('@')[0] : cleanPhone) || (p.customerName ? p.customerName.replace(/\s+/g, '_').toLowerCase() : `user_${matchedUid.slice(-6)}`);
+      const displayName = user?.displayName && !['Customer', 'Store Customer', 'Store User', 'VIP Member'].includes(user.displayName) 
+        ? user.displayName 
+        : (p.customerName || email || (cleanPhone ? `Customer (+91 ${cleanPhone})` : `VIP Customer #${matchedUid.replace(/[^a-zA-Z0-9]/g, '').slice(-6)}`));
+      const phone = cleanPhone || user?.phone || '';
+      const currentBalance = balances[matchedUid] ?? (user?.balance || 0);
+
+      const keysCount = (p.keys && p.keys.length > 0) ? p.keys.length : 1;
+      let orderAmount = p.amount;
+      if (typeof orderAmount !== 'number') {
+        const itm = inventory.find(i => i.value === p.value);
+        orderAmount = (itm ? itm.price : 0) * keysCount;
+      }
+
+      if (!user) {
+        user = {
           uid: matchedUid,
           email,
           displayName,
           customId,
           phone,
-          createdAt: p.date,
-          lastLoginAt: p.date,
+          createdAt: p.date || new Date().toISOString(),
+          lastLoginAt: p.date || new Date().toISOString(),
           role: (email.includes('barikarman') ? 'owner' : 'customer'),
           status: 'active',
           balance: currentBalance,
-          totalOrders: 0,
-          totalSpent: 0,
-          totalKeys: 0,
+          totalOrders: 1,
+          totalSpent: orderAmount || 0,
+          totalKeys: p.keys ? p.keys.length : 1,
           lastKeys: p.keys || [],
           lastOrderId: p.orderId || p.id,
           lastProductName: `${p.category || 'Product'} (${p.label || 'Plan'})`,
           lastOrderDate: p.date
-        });
-        registerIndex(matchedUid, email, phone, customId);
+        };
+        userMap.set(matchedUid, user);
       } else {
-        if (!existing.email && email) {
-          existing.email = email;
-          registerIndex(matchedUid, email);
+        user.totalOrders += 1;
+        user.totalKeys += (p.keys ? p.keys.length : 1);
+        user.totalSpent += (orderAmount || 0);
+        if (!user.email && email) user.email = email;
+        if (!user.phone && phone) user.phone = phone;
+        if (displayName && (!user.displayName || ['Customer', 'Store Customer', 'Store User'].includes(user.displayName))) {
+          user.displayName = displayName;
         }
-        if (!existing.phone && phone) existing.phone = phone;
-        if ((!existing.displayName || existing.displayName === 'Customer' || existing.displayName === 'Store User' || existing.displayName === 'Store Customer') && p.customerName) {
-          existing.displayName = p.customerName;
+        if (p.date && (!user.lastLoginAt || new Date(p.date).getTime() > new Date(user.lastLoginAt).getTime())) {
+          user.lastLoginAt = p.date;
         }
-      }
-    });
-
-    // 4. Calculate total orders, spent, and keys from all purchases
-    purchases.forEach(p => {
-      const matchedUid = findUserIdForRecord(p.userId, p.userEmail, p.customerPhone);
-      if (matchedUid && userMap.has(matchedUid)) {
-        const u = userMap.get(matchedUid)!;
-        u.totalOrders += 1;
-        const keysCount = (p.keys && p.keys.length > 0) ? p.keys.length : 1;
-        u.totalKeys += (p.keys ? p.keys.length : 0);
-        let orderAmount = p.amount;
-        if (typeof orderAmount !== 'number') {
-          const itm = inventory.find(i => i.value === p.value);
-          orderAmount = (itm ? itm.price : 0) * keysCount;
-        }
-        u.totalSpent += (orderAmount || 0);
-
-        if (p.date && (!u.lastLoginAt || new Date(p.date).getTime() > new Date(u.lastLoginAt).getTime())) {
-          u.lastLoginAt = p.date;
-        }
-        if (!u.lastKeys || u.lastKeys.length === 0 || (p.keys && p.keys.length > 0)) {
-          u.lastKeys = p.keys || [];
-          u.lastOrderId = p.orderId || p.id;
-          u.lastProductName = `${p.category || 'Product'} (${p.label || 'Plan'})`;
-          u.lastOrderDate = p.date;
-        }
-        if (p.userEmail && !u.email) {
-          u.email = p.userEmail;
+        if (!user.lastKeys || user.lastKeys.length === 0 || (p.keys && p.keys.length > 0)) {
+          user.lastKeys = p.keys || [];
+          user.lastOrderId = p.orderId || p.id;
+          user.lastProductName = `${p.category || 'Product'} (${p.label || 'Plan'})`;
+          user.lastOrderDate = p.date;
         }
       }
+
+      registerIndex(matchedUid, email, phone, customId, p.keys);
     });
 
-    // 5. Calculate from completed pending orders if not already in purchases
+    // 4. Calculate from completed pending orders if not already in purchases
     pendingOrders.forEach(po => {
       if (po.status === 'completed' || po.status === 'success') {
-        const alreadyInPurchases = purchases.some(p => p.id === po.orderId || p.orderId === po.orderId);
+        const alreadyInPurchases = deduplicatedPurchases.some(p => p.id === po.orderId || p.orderId === po.orderId);
         if (!alreadyInPurchases) {
-          const matchedUid = findUserIdForRecord(po.userId, po.userEmail, po.customerPhone);
+          const matchedUid = findUserIdForRecord(po.userId, po.userEmail, po.customerPhone, po.deliveredKeys);
           if (matchedUid && userMap.has(matchedUid)) {
             const u = userMap.get(matchedUid)!;
             u.totalOrders += 1;
@@ -2423,7 +2513,7 @@ export const store = {
       }
     });
 
-    // 6. Inspect wallet transactions for debit/purchase logs
+    // 5. Inspect wallet transactions for debit/purchase logs
     walletTransactions.forEach(t => {
       const matchedUid = findUserIdForRecord(t.userId, t.userEmail);
       if (matchedUid && userMap.has(matchedUid)) {
@@ -2442,6 +2532,14 @@ export const store = {
         if (t.userEmail && !u.email) {
           u.email = t.userEmail;
         }
+      }
+    });
+
+    // 6. Final verification to ensure every user with lastKeys has at least 1 order & totalKeys
+    userMap.forEach(u => {
+      if (u.lastKeys && u.lastKeys.length > 0) {
+        if (u.totalOrders === 0) u.totalOrders = 1;
+        if (u.totalKeys === 0) u.totalKeys = u.lastKeys.length;
       }
     });
 
@@ -2513,7 +2611,11 @@ export const store = {
       createdAt: profile.createdAt || (existingIdx >= 0 ? registeredUsers[existingIdx].createdAt : new Date().toISOString()),
       lastLoginAt: new Date().toISOString(),
       status: profile.status || (existingIdx >= 0 ? registeredUsers[existingIdx].status : 'active'),
-      phone: profile.phone || (existingIdx >= 0 ? registeredUsers[existingIdx].phone : '')
+      phone: profile.phone || (existingIdx >= 0 ? registeredUsers[existingIdx].phone : ''),
+      address: profile.address || (existingIdx >= 0 ? registeredUsers[existingIdx].address : ''),
+      city: profile.city || (existingIdx >= 0 ? registeredUsers[existingIdx].city : ''),
+      state: profile.state || (existingIdx >= 0 ? registeredUsers[existingIdx].state : ''),
+      pincode: profile.pincode || (existingIdx >= 0 ? registeredUsers[existingIdx].pincode : '')
     };
 
     if (existingIdx >= 0) {
@@ -2896,11 +2998,6 @@ export function useInventory(userId?: string, userEmail?: string) {
   const getFilteredUserPurchases = (): PurchaseRecord[] => {
     const all = store.getPurchases();
     
-    // 1. If no userId and userEmail provided (Dashboard / Global store view), return ALL purchases!
-    if (!userId && !userEmail) {
-      return all;
-    }
-
     const cleanEmail = (userEmail || localStorage.getItem('customer_email') || '').trim().toLowerCase();
     const cleanUid = (userId || '').trim();
     const cleanPhone = (localStorage.getItem('customer_phone') || '').replace(/[^0-9]/g, '');
@@ -2916,6 +3013,35 @@ export function useInventory(userId?: string, userEmail?: string) {
       const devOrders = JSON.parse(localStorage.getItem('device_all_order_ids') || '[]');
       if (Array.isArray(devOrders)) localOrderIds.push(...devOrders);
     } catch (e) {}
+
+    // If no uid, email, phone or local orders exist, user has no personal keys on this session
+    if (!cleanUid && !cleanEmail && !cleanPhone && localOrderIds.length === 0) {
+      // Check if there is a single latest received key on device
+      try {
+        const latestRaw = localStorage.getItem('latestReceivedKey');
+        if (latestRaw) {
+          const latest = JSON.parse(latestRaw);
+          if (latest?.keys && Array.isArray(latest.keys) && latest.keys.length > 0) {
+            return [{
+              id: latest.orderId || `ord_${Date.now()}`,
+              userId: 'me',
+              userEmail: latest.customerEmail || '',
+              customerName: latest.customerName || '',
+              customerPhone: latest.customerPhone || '',
+              orderId: latest.orderId,
+              value: 'custom_key',
+              category: latest.productName || 'VIP Key',
+              label: latest.durationLabel || 'Active',
+              keys: latest.keys,
+              amount: latest.amount,
+              couponCode: latest.couponCode,
+              date: latest.date || new Date().toISOString()
+            }];
+          }
+        }
+      } catch (e) {}
+      return [];
+    }
 
     const filtered = all.filter(p => {
       if (cleanUid && p.userId && p.userId === cleanUid) return true;
@@ -2952,6 +3078,40 @@ export function useInventory(userId?: string, userEmail?: string) {
           }
         }
       }
+    } catch (e) {}
+
+    // Check all pending orders that have delivered keys belonging to this user/session
+    try {
+      const allPending = store.getAllPendingOrders();
+      allPending.forEach(po => {
+        if (po && po.deliveredKeys && Array.isArray(po.deliveredKeys) && po.deliveredKeys.length > 0) {
+          const alreadyInList = filtered.some(f => f.id === po.orderId || f.orderId === po.orderId);
+          if (!alreadyInList) {
+            const isMatch = (cleanUid && po.userId === cleanUid) ||
+              (cleanEmail && po.userEmail && po.userEmail.trim().toLowerCase() === cleanEmail) ||
+              (cleanPhone && po.customerPhone && po.customerPhone.replace(/[^0-9]/g, '') === cleanPhone) ||
+              localOrderIds.includes(po.orderId);
+
+            if (isMatch || (!cleanUid && !cleanEmail && localOrderIds.length === 0)) {
+              filtered.unshift({
+                id: po.orderId,
+                userId: po.userId || cleanUid || 'me',
+                userEmail: po.userEmail || cleanEmail || '',
+                customerName: po.customerName || '',
+                customerPhone: po.customerPhone || cleanPhone || '',
+                orderId: po.orderId,
+                value: po.durationValue || 'custom_key',
+                category: po.productName || 'VIP Key',
+                label: po.durationLabel || 'Active',
+                keys: po.deliveredKeys,
+                amount: po.amount,
+                couponCode: po.couponCode,
+                date: po.paidAt || po.createdAt || new Date().toISOString()
+              });
+            }
+          }
+        }
+      });
     } catch (e) {}
 
     return filtered;

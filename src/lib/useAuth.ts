@@ -88,8 +88,11 @@ export function useAuth() {
       if (!mounted) return;
       hasAuthResolved = true;
       if (user) {
+        const gmailId = user.email || '';
+        const savedCustomerName = localStorage.getItem('customer_name') || '';
+        const savedCustomerPhone = localStorage.getItem('customer_phone') || '';
         const customId = user.email?.split('@')[0] || user.uid.substring(0, 8);
-        const displayName = user.displayName || customId;
+        const displayName = user.displayName || savedCustomerName || user.email?.split('@')[0] || 'Customer';
         const role = (user.email === 'barikarman12@gmail.com' || user.email === 'barikarman207@gmail.com' || user.email?.includes('barikarman')) ? 'owner' : 'customer';
 
         const userObj: User = {
@@ -110,6 +113,7 @@ export function useAuth() {
           email: user.email || '',
           displayName,
           customId,
+          phone: savedCustomerPhone || undefined,
           photoURL: user.photoURL || undefined,
           role,
           createdAt: user.metadata?.creationTime || new Date().toISOString(),
@@ -158,8 +162,10 @@ export const loginWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
   const res = await signInWithPopup(auth, provider);
   const user = res.user;
+  const savedCustomerName = localStorage.getItem('customer_name') || '';
+  const savedCustomerPhone = localStorage.getItem('customer_phone') || '';
   const customId = user.email?.split('@')[0] || user.uid.substring(0, 8);
-  const displayName = user.displayName || customId;
+  const displayName = user.displayName || savedCustomerName || user.email?.split('@')[0] || 'Customer';
   const role = (user.email === 'barikarman12@gmail.com' || user.email === 'barikarman207@gmail.com' || user.email?.includes('barikarman')) ? 'owner' : 'customer';
 
   const userObj: User = {
@@ -167,7 +173,8 @@ export const loginWithGoogle = async () => {
     email: user.email,
     displayName,
     customId,
-    photoURL: user.photoURL || null
+    photoURL: user.photoURL || null,
+    role
   };
   cachedUser = userObj;
   localStorage.setItem('auth_custom_user', JSON.stringify(userObj));
@@ -178,6 +185,7 @@ export const loginWithGoogle = async () => {
     email: user.email || '',
     displayName,
     customId,
+    phone: savedCustomerPhone || undefined,
     photoURL: user.photoURL || undefined,
     role,
     createdAt: user.metadata?.creationTime || new Date().toISOString(),

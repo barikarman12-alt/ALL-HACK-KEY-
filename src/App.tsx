@@ -17,6 +17,7 @@ import { useAuth } from './lib/useAuth';
 import { useInventory } from './store';
 import { ThemeProvider } from './lib/theme';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { CustomerAddressModal } from './components/CustomerAddressModal';
 
 export type PageRoute = 'home' | 'key-history' | 'dashboard' | 'login' | 'key-received' | 'verify-payment';
 
@@ -24,6 +25,22 @@ function AppContent() {
   const { currentUser, loading: authLoading, isAdmin, isOwner } = useAuth();
   const { settings } = useInventory();
   const siteName = settings?.siteName || 'Arman X Store';
+  const [showAutoAddressPrompt, setShowAutoAddressPrompt] = useState(false);
+
+  // Check if customer needs to fill in their Name & WhatsApp Number after Google login
+  useEffect(() => {
+    if (currentUser && !isAdmin) {
+      const isCompleted = localStorage.getItem(`profile_completed_${currentUser.uid}`);
+      const savedPhone = localStorage.getItem('customer_phone');
+
+      if (!isCompleted && !savedPhone) {
+        const timer = setTimeout(() => {
+          setShowAutoAddressPrompt(true);
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [currentUser, isAdmin]);
 
   const [currentPage, setCurrentPage] = useState<PageRoute>(() => {
     const path = window.location.pathname;
@@ -296,6 +313,11 @@ function AppContent() {
       {currentPage !== 'dashboard' && <Footer />}
       <SupportChat />
       <PaymentWatcher onKeyReceived={handlePurchaseSuccess} />
+      <CustomerAddressModal 
+        isOpen={showAutoAddressPrompt} 
+        onClose={() => setShowAutoAddressPrompt(false)} 
+        title="👤 Customer Details / Naam & Mobile Number"
+      />
     </div>
   );
 }
