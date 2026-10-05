@@ -239,12 +239,12 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
                     )}
                   </div>
 
-                  <div className="hidden xl:flex flex-col text-left">
-                    <span className="text-xs font-bold text-white leading-tight flex items-center gap-1">
+                  <div className="flex flex-col text-left max-w-[130px] sm:max-w-[200px]">
+                    <span className="text-xs font-bold text-white leading-tight flex items-center gap-1 truncate">
                       {currentUser.displayName || currentUser.customId || 'User'}
                     </span>
                     {currentUser.email && (
-                      <span className="text-[10px] text-zinc-400 font-mono leading-tight truncate max-w-[140px]">
+                      <span className="text-[10px] text-zinc-300 font-mono leading-tight truncate" title={currentUser.email}>
                         {currentUser.email}
                       </span>
                     )}
@@ -298,15 +298,29 @@ export function Header({ currentPage = 'home', onNavigate, onShowPurchases }: He
 
             {/* Wallet for logged in user */}
             {currentUser && (
-              <div className="flex items-center space-x-1 bg-zinc-900/80 border border-white/10 px-2 py-1 rounded-full theme-pill">
-                <Wallet className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="text-white font-mono font-bold text-xs theme-text-title">₹{balance}</span>
-                <button 
-                  onClick={() => setIsAddBalanceOpen(true)}
-                  className="ml-0.5 bg-white/10 text-white p-0.5 rounded-full transition-colors cursor-pointer"
+              <div className="flex items-center gap-1.5">
+                <div className="flex items-center space-x-1 bg-zinc-900/80 border border-white/10 px-2 py-1 rounded-full theme-pill">
+                  <Wallet className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="text-white font-mono font-bold text-xs theme-text-title">₹{balance}</span>
+                  <button 
+                    onClick={() => setIsAddBalanceOpen(true)}
+                    className="ml-0.5 bg-white/10 text-white p-0.5 rounded-full transition-colors cursor-pointer"
+                    title="Add Balance"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+                <div 
+                  className="w-7 h-7 rounded-full bg-zinc-800 border border-white/20 text-white flex items-center justify-center text-[10px] font-bold cursor-pointer shrink-0"
+                  onClick={() => setIsMenuOpen(true)}
+                  title={currentUser.email || 'User Account'}
                 >
-                  <Plus className="w-3 h-3" />
-                </button>
+                  {currentUser.photoURL ? (
+                    <img src={currentUser.photoURL} alt="" className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    (currentUser.displayName || currentUser.email || 'U')[0].toUpperCase()
+                  )}
+                </div>
               </div>
             )}
 

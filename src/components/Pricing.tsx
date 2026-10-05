@@ -411,7 +411,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
       );
 
       const payload: PurchaseSuccessPayload = {
-        keys: keys && keys.length > 0 ? keys : [`ARM-${(paymentData.orderId || '').slice(-6)}-PRO`],
+        keys: keys || [],
         productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
         durationLabel: selectedDuration?.label || '',
         amount: totalPrice,
@@ -449,7 +449,16 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
     setPaymentError('');
     setPaymentStep('processing');
     
-    if (deductBalance(currentUser.uid, totalPrice)) {
+    const orderId = `ord_wal_${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 6)}`;
+    const fullProductName = resolveProductName(selectedProduct || '', settings.categories, pricingOptions);
+    const durationLabel = selectedDuration?.label || '';
+
+    if (deductBalance(currentUser.uid, totalPrice, {
+      productName: `${fullProductName} - ${durationLabel}`,
+      referenceId: orderId,
+      userEmail: effectiveEmail,
+      note: `Wallet purchase: ${fullProductName} (${durationLabel}) x${quantity}`
+    })) {
       try {
         const keys = await purchaseKeys(
           selectedDuration?.value, 
@@ -460,7 +469,8 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
             amount: totalPrice, 
             couponCode: appliedCoupon?.code,
             customerName: effectiveName,
-            customerPhone: customerPhone.trim() || undefined
+            customerPhone: customerPhone.trim() || undefined,
+            orderId
           }
         );
 
@@ -471,7 +481,7 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
           addBalance(currentUser.uid, refundAmt, {
             method: 'Auto-Refund (Stock Limit)',
             referenceId: `part_ref_${Date.now()}`,
-            note: `Auto-refund for ${missingCount} unfulfilled key(s)`,
+            note: `Auto-refund for ${missingCount} unfulfilled key(s) of ${fullProductName}`,
             type: 'refund',
             userEmail: effectiveEmail
           });
@@ -486,11 +496,12 @@ export function Pricing({ onPurchaseSuccess, onRequiresLogin }: PricingProps) {
         });
         
         const payload: PurchaseSuccessPayload = {
-          keys,
-          productName: resolveProductName(selectedProduct || '', settings.categories, pricingOptions),
-          durationLabel: selectedDuration?.label || '',
+          keys: keys || [],
+          productName: fullProductName,
+          durationLabel,
           amount: totalPrice,
           couponCode: appliedCoupon?.code,
+          orderId,
           customerName: effectiveName,
           customerPhone: customerPhone.trim() || undefined,
           customerEmail: effectiveEmail,

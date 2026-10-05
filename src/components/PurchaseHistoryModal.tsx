@@ -20,18 +20,43 @@ export function PurchaseHistoryModal({ onClose }: PurchaseHistoryModalProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [copiedOrderId, setCopiedOrderId] = useState<string | null>(null);
 
-  const displayList = activeTab === 'all' && isOwner ? allPurchases : purchases;
+  // User personal purchases including device local purchases
+  const userPurchases = (purchases && purchases.length > 0)
+    ? purchases
+    : allPurchases.filter(p => {
+        if (currentUser) {
+          const uidMatch = currentUser.uid && p.userId === currentUser.uid;
+          const emailMatch = currentUser.email && p.userEmail && p.userEmail.toLowerCase() === currentUser.email.toLowerCase();
+          if (uidMatch || emailMatch) return true;
+        }
+        const cleanPhone = (localStorage.getItem('customer_phone') || '').replace(/[^0-9]/g, '');
+        if (cleanPhone && p.customerPhone && p.customerPhone.replace(/[^0-9]/g, '') === cleanPhone) return true;
+        const cleanEmail = (localStorage.getItem('customer_email') || '').trim().toLowerCase();
+        if (cleanEmail && p.userEmail && p.userEmail.trim().toLowerCase() === cleanEmail) return true;
+        return false;
+      });
+
+  const rawDisplayList = (activeTab === 'all' && isOwner)
+    ? allPurchases
+    : userPurchases;
+
+  const displayList = [...rawDisplayList].sort((a, b) => {
+    const timeA = a.date ? new Date(a.date).getTime() : 0;
+    const timeB = b.date ? new Date(b.date).getTime() : 0;
+    return timeB - timeA;
+  });
 
   const filteredList = displayList.filter(p => {
     if (!searchQuery.trim()) return true;
-    const query = searchQuery.toLowerCase();
+    const query = searchQuery.toLowerCase().trim();
     const prodDisplayName = resolveProductName(p.category, settings.categories, items);
     const matchesProduct = prodDisplayName.toLowerCase().includes(query) || p.category?.toLowerCase().includes(query) || p.label?.toLowerCase().includes(query);
-    const matchesId = p.id?.toLowerCase().includes(query);
+    const matchesId = p.id?.toLowerCase().includes(query) || (p.orderId && p.orderId.toLowerCase().includes(query));
     const matchesUser = p.userEmail?.toLowerCase().includes(query) || p.userId?.toLowerCase().includes(query);
+    const matchesPhone = p.customerPhone?.replace(/[^0-9]/g, '').includes(query.replace(/[^0-9]/g, ''));
     const matchesKey = p.keys?.some(k => k.toLowerCase().includes(query));
     const matchesCoupon = p.couponCode?.toLowerCase().includes(query);
-    return matchesProduct || matchesId || matchesUser || matchesKey || matchesCoupon;
+    return matchesProduct || matchesId || matchesUser || matchesPhone || matchesKey || matchesCoupon;
   });
 
   const handleCopySingleKey = (key: string) => {

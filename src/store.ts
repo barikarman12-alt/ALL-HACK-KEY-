@@ -230,7 +230,7 @@ export interface WalletTransaction {
   id: string;
   userId: string;
   userEmail?: string;
-  type: 'deposit' | 'refund' | 'adjustment' | 'deduction';
+  type: 'deposit' | 'refund' | 'adjustment' | 'deduction' | 'debit' | 'purchase';
   amount: number;
   method: string; // e.g. 'UPI / QR Gateway (FamPay)', 'Manual Admin Credit', 'Auto-Refund (Stock Out)', 'Admin Order Refund'
   referenceId?: string; // Order ID or UTR / Gateway Order ID
@@ -431,14 +431,79 @@ const loadInitialGlobal = (): { inventory: ProductKey[]; settings: ProductSettin
 };
 
 const loadInitialPurchases = (): PurchaseRecord[] => {
+  const map = new Map<string, PurchaseRecord>();
   try {
     const saved = localStorage.getItem('appDataPurchases');
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        parsed.forEach(p => {
+          if (p && (p.id || p.orderId)) {
+            map.set(p.id || p.orderId, p);
+          }
+        });
+      }
     }
   } catch (e) {}
-  return [];
+
+  // Also read latestReceivedKey
+  try {
+    const latestRaw = localStorage.getItem('latestReceivedKey');
+    if (latestRaw) {
+      const l = JSON.parse(latestRaw);
+      if (l && l.keys && Array.isArray(l.keys) && l.keys.length > 0) {
+        const id = l.orderId || `ord_${Date.now()}`;
+        if (!map.has(id)) {
+          map.set(id, {
+            id,
+            userId: l.userId || 'anonymous',
+            userEmail: l.customerEmail || '',
+            customerName: l.customerName || '',
+            customerPhone: l.customerPhone || '',
+            orderId: l.orderId,
+            value: 'vip_key',
+            category: l.productName || 'VIP Key',
+            label: l.durationLabel || 'Active',
+            keys: l.keys,
+            amount: l.amount,
+            couponCode: l.couponCode,
+            date: l.date || new Date().toISOString()
+          });
+        }
+      }
+    }
+  } catch (e) {}
+
+  // Also read pendingOrders with deliveredKeys
+  try {
+    const pendingRaw = localStorage.getItem('appDataPendingOrders');
+    if (pendingRaw) {
+      const pList = JSON.parse(pendingRaw);
+      if (Array.isArray(pList)) {
+        pList.forEach(po => {
+          if (po && po.orderId && po.deliveredKeys && po.deliveredKeys.length > 0 && !map.has(po.orderId)) {
+            map.set(po.orderId, {
+              id: po.orderId,
+              userId: po.userId || 'anonymous',
+              userEmail: po.userEmail || '',
+              customerName: po.customerName || '',
+              customerPhone: po.customerPhone || '',
+              orderId: po.orderId,
+              value: po.durationValue || 'key',
+              category: po.productName || 'VIP Key',
+              label: po.durationLabel || 'Active',
+              keys: po.deliveredKeys,
+              amount: po.amount,
+              couponCode: po.couponCode,
+              date: po.paidAt || po.createdAt || new Date().toISOString()
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {}
+
+  return Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
 const loadInitialUsers = (): UserProfile[] => {
@@ -680,7 +745,17 @@ const syncToStorage = async () => {
 const syncPurchasesToStorage = async () => {
   try {
     localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
-    await setDoc(doc(db, 'appData', 'purchases'), { purchases }, { merge: true }).catch(() => {});
+    await setDoc(doc(db, 'appData', 'purchases'), { purchases, updatedAt: new Date().toISOString() }, { merge: true }).catch(() => {});
+    
+    // Also save top purchases individually to collection
+    try {
+      const batchList = purchases.slice(0, 30);
+      for (const p of batchList) {
+        if (p && p.id) {
+          setDoc(doc(db, 'purchases', p.id), p, { merge: true }).catch(() => {});
+        }
+      }
+    } catch (e) {}
   } catch (e: any) {
     console.warn('Failed to sync purchases to Firestore:', e?.message || e);
   }
@@ -1013,11 +1088,36 @@ const initializeData = async () => {
       onSnapshot(doc(db, 'appData', 'purchases'), (docSnap) => {
         if (docSnap.exists()) {
           const data = docSnap.data();
-          if (data.purchases) purchases = data.purchases;
-          store.notify();
+          if (Array.isArray(data.purchases)) {
+            const map = new Map<string, PurchaseRecord>();
+            purchases.forEach(p => { if (p && p.id) map.set(p.id, p); });
+            data.purchases.forEach((p: PurchaseRecord) => { if (p && p.id) map.set(p.id, p); });
+            purchases = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
+            store.notify();
+          }
         }
       }, (err) => {
         console.warn('Purchases snapshot offline/notice:', err?.message || err);
+      });
+
+      onSnapshot(collection(db, 'purchases'), (snapshot) => {
+        if (!snapshot.empty) {
+          const map = new Map<string, PurchaseRecord>();
+          purchases.forEach(p => { if (p && p.id) map.set(p.id, p); });
+          snapshot.forEach(docSnap => {
+            const data = docSnap.data() as PurchaseRecord;
+            if (data && (data.id || docSnap.id)) {
+              const id = data.id || docSnap.id;
+              map.set(id, { ...data, id });
+            }
+          });
+          purchases = Array.from(map.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+          localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
+          store.notify();
+        }
+      }, (err) => {
+        console.warn('Purchases collection snapshot notice:', err?.message || err);
       });
 
       onSnapshot(doc(db, 'appData', 'usersRegistry'), (docSnap) => {
@@ -1272,8 +1372,140 @@ export function getDailySpinCycle() {
 export const store = {
   getInventory: () => inventory,
   getSettings: () => settings,
-  getPurchases: () => purchases,
+  getPurchases: () => {
+    const map = new Map<string, PurchaseRecord>();
+    purchases.forEach(p => { if (p && (p.id || p.orderId)) map.set(p.id || p.orderId!, p); });
+
+    try {
+      const latestRaw = localStorage.getItem('latestReceivedKey');
+      if (latestRaw) {
+        const l = JSON.parse(latestRaw);
+        if (l && l.keys && Array.isArray(l.keys) && l.keys.length > 0) {
+          const id = l.orderId || `ord_${Date.now()}`;
+          if (!map.has(id)) {
+            map.set(id, {
+              id,
+              userId: l.userId || 'anonymous',
+              userEmail: l.customerEmail || '',
+              customerName: l.customerName || '',
+              customerPhone: l.customerPhone || '',
+              orderId: l.orderId,
+              value: 'vip_key',
+              category: l.productName || 'VIP Key',
+              label: l.durationLabel || 'Active',
+              keys: l.keys,
+              amount: l.amount,
+              couponCode: l.couponCode,
+              date: l.date || new Date().toISOString()
+            });
+          }
+        }
+      }
+    } catch (e) {}
+
+    try {
+      const pendingRaw = localStorage.getItem('appDataPendingOrders');
+      if (pendingRaw) {
+        const pList = JSON.parse(pendingRaw);
+        if (Array.isArray(pList)) {
+          pList.forEach(po => {
+            if (po && po.orderId && po.deliveredKeys && po.deliveredKeys.length > 0 && !map.has(po.orderId)) {
+              map.set(po.orderId, {
+                id: po.orderId,
+                userId: po.userId || 'anonymous',
+                userEmail: po.userEmail || '',
+                customerName: po.customerName || '',
+                customerPhone: po.customerPhone || '',
+                orderId: po.orderId,
+                value: po.durationValue || 'key',
+                category: po.productName || 'VIP Key',
+                label: po.durationLabel || 'Active',
+                keys: po.deliveredKeys,
+                amount: po.amount,
+                couponCode: po.couponCode,
+                date: po.paidAt || po.createdAt || new Date().toISOString()
+              });
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = a.date ? new Date(a.date).getTime() : 0;
+      const timeB = b.date ? new Date(b.date).getTime() : 0;
+      return timeB - timeA;
+    });
+  },
   isInitialized: () => initialized,
+
+  refreshPurchases: async (): Promise<PurchaseRecord[]> => {
+    try {
+      const [colRes, docRes] = await Promise.allSettled([
+        getDocs(collection(db, 'purchases')),
+        getDoc(doc(db, 'appData', 'purchases'))
+      ]);
+
+      const map = new Map<string, PurchaseRecord>();
+      purchases.forEach(p => { if (p && (p.id || p.orderId)) map.set(p.id || p.orderId!, p); });
+
+      if (docRes.status === 'fulfilled' && docRes.value.exists()) {
+        const d = docRes.value.data();
+        if (Array.isArray(d?.purchases)) {
+          d.purchases.forEach((p: PurchaseRecord) => {
+            if (p && (p.id || p.orderId)) map.set(p.id || p.orderId!, p);
+          });
+        }
+      }
+
+      if (colRes.status === 'fulfilled' && !colRes.value.empty) {
+        colRes.value.forEach(docSnap => {
+          const p = docSnap.data() as PurchaseRecord;
+          if (p && (p.id || docSnap.id)) {
+            const id = p.id || docSnap.id;
+            map.set(id, { ...p, id });
+          }
+        });
+      }
+
+      try {
+        const latestRaw = localStorage.getItem('latestReceivedKey');
+        if (latestRaw) {
+          const l = JSON.parse(latestRaw);
+          if (l && l.keys && Array.isArray(l.keys) && l.keys.length > 0) {
+            const id = l.orderId || `ord_${Date.now()}`;
+            map.set(id, {
+              id,
+              userId: l.userId || 'anonymous',
+              userEmail: l.customerEmail || '',
+              customerName: l.customerName || '',
+              customerPhone: l.customerPhone || '',
+              orderId: l.orderId,
+              value: 'vip_key',
+              category: l.productName || 'VIP Key',
+              label: l.durationLabel || 'Active',
+              keys: l.keys,
+              amount: l.amount,
+              couponCode: l.couponCode,
+              date: l.date || new Date().toISOString()
+            });
+          }
+        }
+      } catch (e) {}
+
+      purchases = Array.from(map.values()).sort((a, b) => {
+        const timeA = a.date ? new Date(a.date).getTime() : 0;
+        const timeB = b.date ? new Date(b.date).getTime() : 0;
+        return timeB - timeA;
+      });
+
+      localStorage.setItem('appDataPurchases', JSON.stringify(purchases));
+      store.notify();
+      return purchases;
+    } catch (e) {
+      return purchases;
+    }
+  },
 
   getPaymentSettings: (): PaymentGatewaySettings => {
     return settings.payment || defaultPaymentSettings;
@@ -1420,10 +1652,19 @@ export const store = {
     let purchased: string[] = [];
     let record: PurchaseRecord | null = null;
 
+    const targetVal = (value || '').trim().toLowerCase();
+    const cleanTargetVal = targetVal.replace(/[^a-zA-Z0-9]/g, '');
+
     inventory = inventory.map(item => {
-      if (item.value === value) {
+      const itemVal = (item.value || '').trim().toLowerCase();
+      const cleanItemVal = itemVal.replace(/[^a-zA-Z0-9]/g, '');
+      const isMatch = item.value === value || itemVal === targetVal || (cleanItemVal.length > 0 && cleanItemVal === cleanTargetVal);
+
+      if (isMatch) {
         // Filter out any key that has ever been used/delivered
-        const availableUnusedKeys = item.keys.filter(k => !usedKeysSet.has(k.trim().toUpperCase()));
+        const availableUnusedKeys = (item.keys || []).filter(
+          k => typeof k === 'string' && k.trim().length > 0 && !usedKeysSet.has(k.trim().toUpperCase())
+        );
         
         // Take required count from strictly unused keys
         purchased = availableUnusedKeys.slice(0, count);
@@ -1434,48 +1675,26 @@ export const store = {
         });
 
         // Remaining keys left in this product
-        const remainingKeys = item.keys.filter(
+        const remainingKeys = (item.keys || []).filter(
           k => !purchased.includes(k) && !usedKeysSet.has(k.trim().toUpperCase())
         );
 
-        // If inventory ran short of unique keys, generate 100% unique, collision-proof VIP keys
-        const needed = count - purchased.length;
-        if (needed > 0) {
-          const prefix = (item.value || 'vip').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().slice(0, 8);
-          for (let i = 0; i < needed; i++) {
-            let uniqueKey = '';
-            let attempts = 0;
-            do {
-              const entropy1 = Date.now().toString(36).toUpperCase();
-              const entropy2 = Math.random().toString(36).substring(2, 7).toUpperCase();
-              const entropy3 = Math.random().toString(36).substring(2, 7).toUpperCase();
-              uniqueKey = `VIP-${prefix}-${entropy1}-${entropy2}-${entropy3}`;
-              attempts++;
-            } while (usedKeysSet.has(uniqueKey) && attempts < 50);
-
-            usedKeysSet.add(uniqueKey);
-            purchased.push(uniqueKey);
-          }
-        }
-
-        if (purchased.length > 0) {
-          const productDisplayName = resolveProductName(item.category, settings.categories, inventory);
-          record = {
-            id: meta?.orderId || ('ord_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6)),
-            userId: userId || 'anonymous',
-            userEmail: userEmail || '',
-            customerName: meta?.customerName || '',
-            customerPhone: meta?.customerPhone || '',
-            orderId: meta?.orderId,
-            value: item.value,
-            category: productDisplayName,
-            label: item.label,
-            keys: purchased,
-            amount: meta?.amount,
-            couponCode: meta?.couponCode,
-            date: new Date().toISOString()
-          };
-        }
+        const productDisplayName = resolveProductName(item.category, settings.categories, inventory);
+        record = {
+          id: meta?.orderId || ('ord_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6)),
+          userId: userId || 'anonymous',
+          userEmail: userEmail || '',
+          customerName: meta?.customerName || '',
+          customerPhone: meta?.customerPhone || '',
+          orderId: meta?.orderId,
+          value: item.value,
+          category: productDisplayName,
+          label: item.label,
+          keys: purchased,
+          amount: meta?.amount,
+          couponCode: meta?.couponCode,
+          date: new Date().toISOString()
+        };
 
         return { ...item, stock: remainingKeys.length, keys: remainingKeys };
       }
@@ -1837,7 +2056,17 @@ export const store = {
     store.notify();
   },
 
-  deductBalance: (userId: string, amount: number): boolean => {
+  deductBalance: (
+    userId: string, 
+    amount: number, 
+    txDetails?: { 
+      method?: string; 
+      referenceId?: string; 
+      note?: string; 
+      productName?: string; 
+      userEmail?: string;
+    }
+  ): boolean => {
     if (!userId || amount <= 0) return false;
     const current = store.getBalance(userId);
     if (current >= amount) {
@@ -1845,11 +2074,28 @@ export const store = {
       balances[userId] = newBal;
       try {
         localStorage.setItem('user_balance_' + userId, newBal.toString());
-        if (auth.currentUser?.uid === userId) {
+        if (auth.currentUser?.uid === userId || auth.currentUser?.email?.includes('barikarman')) {
           setDoc(doc(db, 'users', userId), { balance: newBal, lastUpdated: new Date().toISOString() }, { merge: true }).catch(() => {});
         }
       } catch(e) {}
       syncToStorage();
+
+      const tx: WalletTransaction = {
+        id: `tx_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        userId,
+        userEmail: txDetails?.userEmail || registeredUsers.find(u => u.uid === userId)?.email || '',
+        type: 'debit',
+        amount,
+        method: txDetails?.method || 'Wallet Balance',
+        referenceId: txDetails?.referenceId || `debit_${Date.now()}`,
+        note: txDetails?.note || (txDetails?.productName ? `Purchased: ${txDetails.productName}` : 'Wallet balance deduction'),
+        date: new Date().toISOString(),
+        status: 'completed',
+        balanceAfter: newBal
+      };
+      walletTransactions.unshift(tx);
+      syncTransactionsToStorage();
+
       store.notify();
       return true;
     }
@@ -1989,12 +2235,37 @@ export const store = {
 
   getUsers: (): UserWithStats[] => {
     const userMap = new Map<string, UserWithStats>();
+    const emailToUid = new Map<string, string>();
+    const phoneToUid = new Map<string, string>();
+    const customIdToUid = new Map<string, string>();
 
-    // 1. Registered users from database / storage
+    // Helper to register index mappings
+    const registerIndex = (uid: string, email?: string, phone?: string, customId?: string) => {
+      if (email && email.trim()) {
+        const clean = email.trim().toLowerCase();
+        emailToUid.set(clean, uid);
+      }
+      if (phone && phone.trim()) {
+        const cp = phone.replace(/[^0-9]/g, '');
+        if (cp) phoneToUid.set(cp, uid);
+      }
+      if (customId && customId.trim()) {
+        customIdToUid.set(customId.trim().toLowerCase(), uid);
+      }
+    };
+
+    // 1. Registered users from database / storage (Real authenticated & Google users)
     registeredUsers.forEach(u => {
       if (u && u.uid) {
+        const email = u.email || '';
+        const displayName = u.displayName || (email ? email.split('@')[0] : u.customId) || 'Customer';
+        const customId = u.customId || (email ? email.split('@')[0] : u.uid.substring(0, 8));
+
         userMap.set(u.uid, {
           ...u,
+          email,
+          displayName,
+          customId,
           balance: balances[u.uid] ?? (u.balance || 0),
           totalOrders: 0,
           totalSpent: 0,
@@ -2002,26 +2273,72 @@ export const store = {
           phone: u.phone || '',
           lastKeys: []
         });
+
+        registerIndex(u.uid, email, u.phone, customId);
       }
     });
 
-    // 2. Discover from purchases (including all guest & UPI customer checkouts)
-    purchases.forEach(p => {
-      const cleanPhone = (p.customerPhone || '').replace(/[^0-9]/g, '');
-      const uid = (p.userId && p.userId !== 'anonymous') 
-        ? p.userId 
-        : (cleanPhone ? `phone_${cleanPhone}` : (p.userEmail ? `email_${p.userEmail}` : `cust_${p.id}`));
+    // 2. Discover from balances (if not yet in userMap)
+    Object.keys(balances || {}).forEach(uid => {
+      if (uid && uid !== 'anonymous' && !userMap.has(uid)) {
+        const isEmailUid = uid.includes('@');
+        const email = isEmailUid ? uid : '';
+        const customId = isEmailUid ? uid.split('@')[0] : uid.substring(0, 8);
+        const displayName = customId;
 
-      const existing = userMap.get(uid);
-      const email = p.userEmail || existing?.email || (cleanPhone ? `${cleanPhone}@customer.phone` : '');
-      const customId = existing?.customId || cleanPhone || (p.customerName ? p.customerName.replace(/\s+/g, '_').toLowerCase() : uid.substring(0, 8));
-      const displayName = p.customerName || existing?.displayName || (cleanPhone ? `Customer (${cleanPhone})` : (email ? email.split('@')[0] : 'Store Customer'));
-      const phone = p.customerPhone || existing?.phone || '';
-      const currentBalance = balances[uid] ?? (existing?.balance || 0);
-
-      if (!existing) {
         userMap.set(uid, {
           uid,
+          email,
+          displayName,
+          customId,
+          createdAt: new Date().toISOString(),
+          lastLoginAt: new Date().toISOString(),
+          role: (email.includes('barikarman') || uid.includes('barikarman')) ? 'owner' : 'customer',
+          status: 'active',
+          balance: balances[uid] || 0,
+          totalOrders: 0,
+          totalSpent: 0,
+          totalKeys: 0,
+          lastKeys: []
+        });
+
+        registerIndex(uid, email, undefined, customId);
+      }
+    });
+
+    // Helper to find existing user for an order/purchase/transaction
+    const findUserIdForRecord = (userId?: string, userEmail?: string, customerPhone?: string): string | undefined => {
+      if (userId && userId !== 'anonymous' && userMap.has(userId)) return userId;
+      const cleanEmail = (userEmail || '').trim().toLowerCase();
+      if (cleanEmail && emailToUid.has(cleanEmail)) return emailToUid.get(cleanEmail);
+      const cleanPhone = (customerPhone || '').replace(/[^0-9]/g, '');
+      if (cleanPhone && phoneToUid.has(cleanPhone)) return phoneToUid.get(cleanPhone);
+      if (userId && customIdToUid.has(userId.trim().toLowerCase())) return customIdToUid.get(userId.trim().toLowerCase());
+      return undefined;
+    };
+
+    // 3. Discover new customer accounts from purchases (guest checkouts & direct orders)
+    purchases.forEach(p => {
+      const cleanPhone = (p.customerPhone || '').replace(/[^0-9]/g, '');
+      const cleanEmail = (p.userEmail || '').trim().toLowerCase();
+      let matchedUid = findUserIdForRecord(p.userId, p.userEmail, p.customerPhone);
+
+      if (!matchedUid) {
+        matchedUid = (p.userId && p.userId !== 'anonymous') 
+          ? p.userId 
+          : (cleanEmail ? `email_${cleanEmail}` : (cleanPhone ? `phone_${cleanPhone}` : `cust_${p.id}`));
+      }
+
+      const existing = userMap.get(matchedUid);
+      const email = p.userEmail || existing?.email || '';
+      const customId = existing?.customId || (email ? email.split('@')[0] : cleanPhone) || (p.customerName ? p.customerName.replace(/\s+/g, '_').toLowerCase() : matchedUid.substring(0, 8));
+      const displayName = p.customerName || existing?.displayName || (email ? email.split('@')[0] : (cleanPhone ? `Customer (${cleanPhone})` : 'Store Customer'));
+      const phone = p.customerPhone || existing?.phone || '';
+      const currentBalance = balances[matchedUid] ?? (existing?.balance || 0);
+
+      if (!existing) {
+        userMap.set(matchedUid, {
+          uid: matchedUid,
           email,
           displayName,
           customId,
@@ -2036,72 +2353,94 @@ export const store = {
           totalKeys: 0,
           lastKeys: p.keys || [],
           lastOrderId: p.orderId || p.id,
-          lastProductName: p.category,
+          lastProductName: `${p.category || 'Product'} (${p.label || 'Plan'})`,
           lastOrderDate: p.date
         });
+        registerIndex(matchedUid, email, phone, customId);
       } else {
+        if (!existing.email && email) {
+          existing.email = email;
+          registerIndex(matchedUid, email);
+        }
         if (!existing.phone && phone) existing.phone = phone;
         if ((!existing.displayName || existing.displayName === 'Customer' || existing.displayName === 'Store User' || existing.displayName === 'Store Customer') && p.customerName) {
           existing.displayName = p.customerName;
         }
-        if ((!existing.lastKeys || existing.lastKeys.length === 0) && p.keys && p.keys.length > 0) {
-          existing.lastKeys = p.keys;
-          existing.lastOrderId = p.orderId || p.id;
-          existing.lastProductName = p.category;
-          existing.lastOrderDate = p.date;
-        }
       }
     });
 
-    // 3. Discover from balances
-    Object.keys(balances || {}).forEach(uid => {
-      if (uid && uid !== 'anonymous' && !userMap.has(uid)) {
-        const email = uid.includes('@') ? uid : `${uid}@armanxstore.com`;
-        const customId = email.split('@')[0] || uid.substring(0, 8);
-        userMap.set(uid, {
-          uid,
-          email,
-          displayName: customId,
-          customId,
-          createdAt: new Date().toISOString(),
-          lastLoginAt: new Date().toISOString(),
-          role: (email.includes('barikarman') ? 'owner' : 'customer'),
-          status: 'active',
-          balance: balances[uid] || 0,
-          totalOrders: 0,
-          totalSpent: 0,
-          totalKeys: 0,
-          lastKeys: []
-        });
-      }
-    });
-
-    // 4. Calculate total orders, spent, and keys from purchases
+    // 4. Calculate total orders, spent, and keys from all purchases
     purchases.forEach(p => {
-      const cleanPhone = (p.customerPhone || '').replace(/[^0-9]/g, '');
-      const uid = (p.userId && p.userId !== 'anonymous') 
-        ? p.userId 
-        : (cleanPhone ? `phone_${cleanPhone}` : (p.userEmail ? `email_${p.userEmail}` : `cust_${p.id}`));
-
-      if (uid && userMap.has(uid)) {
-        const u = userMap.get(uid)!;
+      const matchedUid = findUserIdForRecord(p.userId, p.userEmail, p.customerPhone);
+      if (matchedUid && userMap.has(matchedUid)) {
+        const u = userMap.get(matchedUid)!;
         u.totalOrders += 1;
-        u.totalKeys += (p.keys?.length || 0);
+        const keysCount = (p.keys && p.keys.length > 0) ? p.keys.length : 1;
+        u.totalKeys += (p.keys ? p.keys.length : 0);
         let orderAmount = p.amount;
         if (typeof orderAmount !== 'number') {
           const itm = inventory.find(i => i.value === p.value);
-          orderAmount = (itm ? itm.price : 0) * (p.keys?.length || 1);
+          orderAmount = (itm ? itm.price : 0) * keysCount;
         }
         u.totalSpent += (orderAmount || 0);
 
         if (p.date && (!u.lastLoginAt || new Date(p.date).getTime() > new Date(u.lastLoginAt).getTime())) {
           u.lastLoginAt = p.date;
         }
-        if (p.keys && p.keys.length > 0 && (!u.lastKeys || u.lastKeys.length === 0)) {
-          u.lastKeys = p.keys;
+        if (!u.lastKeys || u.lastKeys.length === 0 || (p.keys && p.keys.length > 0)) {
+          u.lastKeys = p.keys || [];
           u.lastOrderId = p.orderId || p.id;
-          u.lastProductName = p.category;
+          u.lastProductName = `${p.category || 'Product'} (${p.label || 'Plan'})`;
           u.lastOrderDate = p.date;
+        }
+        if (p.userEmail && !u.email) {
+          u.email = p.userEmail;
+        }
+      }
+    });
+
+    // 5. Calculate from completed pending orders if not already in purchases
+    pendingOrders.forEach(po => {
+      if (po.status === 'completed' || po.status === 'success') {
+        const alreadyInPurchases = purchases.some(p => p.id === po.orderId || p.orderId === po.orderId);
+        if (!alreadyInPurchases) {
+          const matchedUid = findUserIdForRecord(po.userId, po.userEmail, po.customerPhone);
+          if (matchedUid && userMap.has(matchedUid)) {
+            const u = userMap.get(matchedUid)!;
+            u.totalOrders += 1;
+            if (po.deliveredKeys && po.deliveredKeys.length > 0) {
+              u.totalKeys += po.deliveredKeys.length;
+              if (!u.lastKeys || u.lastKeys.length === 0) {
+                u.lastKeys = po.deliveredKeys;
+                u.lastOrderId = po.orderId;
+                u.lastProductName = `${po.productName || 'Product'} (${po.durationLabel || 'Plan'})`;
+                u.lastOrderDate = po.paidAt || po.createdAt;
+              }
+            }
+            u.totalSpent += (po.amount || 0);
+          }
+        }
+      }
+    });
+
+    // 6. Inspect wallet transactions for debit/purchase logs
+    walletTransactions.forEach(t => {
+      const matchedUid = findUserIdForRecord(t.userId, t.userEmail);
+      if (matchedUid && userMap.has(matchedUid)) {
+        const u = userMap.get(matchedUid)!;
+        if (t.type === 'debit' || t.type === 'purchase') {
+          if (!u.lastProductName && t.note) {
+            u.lastProductName = t.note.replace(/^Purchased:\s*/i, '').replace(/^Wallet purchase:\s*/i, '');
+          }
+          if (u.totalSpent === 0 && t.amount > 0) {
+            u.totalSpent = t.amount;
+          }
+          if (u.totalOrders === 0) {
+            u.totalOrders = 1;
+          }
+        }
+        if (t.userEmail && !u.email) {
+          u.email = t.userEmail;
         }
       }
     });
@@ -2556,6 +2895,12 @@ export function useInventory(userId?: string, userEmail?: string) {
 
   const getFilteredUserPurchases = (): PurchaseRecord[] => {
     const all = store.getPurchases();
+    
+    // 1. If no userId and userEmail provided (Dashboard / Global store view), return ALL purchases!
+    if (!userId && !userEmail) {
+      return all;
+    }
+
     const cleanEmail = (userEmail || localStorage.getItem('customer_email') || '').trim().toLowerCase();
     const cleanUid = (userId || '').trim();
     const cleanPhone = (localStorage.getItem('customer_phone') || '').replace(/[^0-9]/g, '');
@@ -2563,9 +2908,14 @@ export function useInventory(userId?: string, userEmail?: string) {
     let localOrderIds: string[] = [];
     if (cleanUid) {
       try {
-        localOrderIds = JSON.parse(localStorage.getItem(`user_orders_${cleanUid}`) || '[]');
+        const uOrders = JSON.parse(localStorage.getItem(`user_orders_${cleanUid}`) || '[]');
+        if (Array.isArray(uOrders)) localOrderIds.push(...uOrders);
       } catch (e) {}
     }
+    try {
+      const devOrders = JSON.parse(localStorage.getItem('device_all_order_ids') || '[]');
+      if (Array.isArray(devOrders)) localOrderIds.push(...devOrders);
+    } catch (e) {}
 
     const filtered = all.filter(p => {
       if (cleanUid && p.userId && p.userId === cleanUid) return true;
@@ -2637,6 +2987,7 @@ export function useInventory(userId?: string, userEmail?: string) {
     addProduct: store.addProduct,
     deleteProduct: store.deleteProduct,
     purchaseKeys: store.purchaseKeys,
+    refreshPurchases: store.refreshPurchases,
     isInitialized
   };
 }

@@ -211,10 +211,19 @@ export function VerifyPaymentPage({ onBackToHome, onViewPurchases }: VerifyPayme
       }
     }
 
-    // Fallback VIP key format if stock query is silent
-    const finalKeys = keys.length > 0 
-      ? keys 
-      : [`KEY-VIP-${effectiveOrderId.slice(-6).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`];
+    // Real keys strictly from stock (No external or fake generated keys)
+    const finalKeys = keys || [];
+
+    if (finalKeys.length === 0 && totalPaid > 0 && targetUid) {
+      // If product became out of stock during payment, auto-refund to user's wallet
+      addBalanceRef.current(targetUid, totalPaid, {
+        method: 'Auto-Refund (Out of Stock)',
+        referenceId: effectiveOrderId,
+        note: `Auto-refund of ₹${totalPaid} for out-of-stock keys (Order #${effectiveOrderId})`,
+        type: 'refund',
+        userEmail: targetEmail
+      });
+    }
 
     setDeliveredKeys(finalKeys);
 
@@ -434,42 +443,51 @@ Thank you for your purchase!
               </div>
 
               <div className="space-y-2.5">
-                {deliveredKeys.map((key, idx) => (
-                  <div 
-                    key={idx}
-                    className="relative flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-cyan-950/20 to-black/80 border border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.15)] group"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-mono font-bold flex items-center justify-center shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="font-mono text-sm sm:text-base font-bold text-emerald-300 select-all tracking-wider break-all">
-                        {key}
-                      </span>
-                    </div>
-
-                    <button
-                      onClick={() => handleCopyKey(key, idx)}
-                      className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
-                        copiedIndex === idx
-                          ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.5)]'
-                          : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
-                      }`}
+                {deliveredKeys.length > 0 ? (
+                  deliveredKeys.map((key, idx) => (
+                    <div 
+                      key={idx}
+                      className="relative flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-2xl bg-gradient-to-r from-emerald-950/40 via-cyan-950/20 to-black/80 border border-emerald-500/40 shadow-[0_0_20px_rgba(16,185,129,0.15)] group"
                     >
-                      {copiedIndex === idx ? (
-                        <>
-                          <Check className="w-4 h-4" />
-                          <span>Copied!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4" />
-                          <span>Copy Key</span>
-                        </>
-                      )}
-                    </button>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-mono font-bold flex items-center justify-center shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="font-mono text-sm sm:text-base font-bold text-emerald-300 select-all tracking-wider break-all">
+                          {key}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => handleCopyKey(key, idx)}
+                        className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-1.5 transition-all shrink-0 cursor-pointer ${
+                          copiedIndex === idx
+                            ? 'bg-emerald-500 text-black shadow-[0_0_15px_rgba(16,185,129,0.5)]'
+                            : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                        }`}
+                      >
+                        {copiedIndex === idx ? (
+                          <>
+                            <Check className="w-4 h-4" />
+                            <span>Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-4 h-4" />
+                            <span>Copy Key</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-sm space-y-2 text-center">
+                    <p className="font-bold">⚠️ Product Stock Limit Exceeded</p>
+                    <p className="text-xs text-amber-300/80">
+                      Payment receive ho gaya tha lekin product instantly out of stock ho gaya. Aapka ₹{orderDetails?.amount || 0} wallet balance me safely refund kar diya gaya hai!
+                    </p>
                   </div>
-                ))}
+                )}
               </div>
             </div>
 
